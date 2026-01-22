@@ -302,9 +302,22 @@ function Game:update(dt)
     
     -- Network updates
     if self.network then
-        -- Send position updates
+        -- Send position updates (throttled to reduce spam)
         if self.network.sendPosition then
-            self.network:sendPosition(self.player.x, self.player.y, self.player.direction)
+            -- Only send if position changed significantly (more than 2 pixels) or direction changed
+            local lastX = self.lastSentX or self.player.x
+            local lastY = self.lastSentY or self.player.y
+            local lastDir = self.lastSentDir or self.player.direction
+            local dx = math.abs(self.player.x - lastX)
+            local dy = math.abs(self.player.y - lastY)
+            local dirChanged = (self.player.direction ~= lastDir)
+            
+            if dx > 2 or dy > 2 or dirChanged then
+                self.network:sendPosition(self.player.x, self.player.y, self.player.direction)
+                self.lastSentX = self.player.x
+                self.lastSentY = self.player.y
+                self.lastSentDir = self.player.direction
+            end
         end
         
         -- Poll for messages
@@ -346,10 +359,15 @@ function Game:handleNetworkMessage(msg)
             else
                 print("Remote player already exists: " .. playerId)
             end
-            -- If we're the host and someone joined, hide the menu if it's still showing waiting
-            if self.isHost and self.menu:isVisible() and self.menu.state == Menu.STATE.WAITING then
-                self.menu:hide()
-                print("Player joined! Starting game...")
+            -- Hide menu when a player joins (host sees client join, client sees host join)
+            if self.menu:isVisible() then
+                if self.isHost and self.menu.state == Menu.STATE.WAITING then
+                    self.menu:hide()
+                    print("Host: Player joined! Starting game...")
+                elseif not self.isHost and (self.menu.state == Menu.STATE.FIND_GAME or self.menu.state == Menu.STATE.JOIN_CODE) then
+                    self.menu:hide()
+                    print("Client: Host found! Starting game...")
+                end
             end
         else
             print("Ignoring player_joined for ourselves: " .. (playerId or "nil"))
@@ -368,7 +386,16 @@ function Game:handleNetworkMessage(msg)
             return
         end
         
-        print("Player moved: " .. playerId .. " to (" .. (msg.x or 0) .. ", " .. (msg.y or 0) .. ")")
+        -- Reduce log spam - only log every 10th movement or when direction changes
+        if not self.lastMoveLog then self.lastMoveLog = {} end
+        local lastLog = self.lastMoveLog[playerId] or { count = 0, x = 0, y = 0 }
+        local shouldLog = (lastLog.count % 10 == 0) or (msg.x ~= lastLog.x or msg.y ~= lastLog.y)
+        if shouldLog then
+            print("Player moved: " .. playerId .. " to (" .. (msg.x or 0) .. ", " .. (msg.y or 0) .. ")")
+            self.lastMoveLog[playerId] = { count = lastLog.count + 1, x = msg.x, y = msg.y }
+        else
+            self.lastMoveLog[playerId] = { count = lastLog.count + 1, x = lastLog.x, y = lastLog.y }
+        end
         local remote = self.remotePlayers[playerId]
         if remote then
             remote:setTargetPosition(msg.x, msg.y, msg.dir)
