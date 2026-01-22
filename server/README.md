@@ -1,4 +1,4 @@
-# Boon Snatch Server
+# Boon Snatch Server :)
 
 Matchmaker + WebSocket server for Boon Snatch multiplayer game.
 
