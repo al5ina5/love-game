@@ -3,6 +3,7 @@ import cors from 'cors';
 import net from 'net';
 
 // --- Configuration ---
+// Railway: HTTP on PORT (8080), TCP on 12346 (Railway TCP proxy forwards to this)
 const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
 const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
 

@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const net_1 = __importDefault(require("net"));
 // --- Configuration ---
+// Railway: HTTP on PORT (8080), TCP on 12346 (Railway TCP proxy forwards to this)
 const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
 const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
 // --- In-Memory State ---
