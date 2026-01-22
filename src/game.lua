@@ -350,14 +350,17 @@ function Game:handleNetworkMessage(msg)
     
     if msg.type == "player_joined" then
         local playerId = msg.id or msg.playerId
-        print("Player joined: " .. playerId)
+        local posX = msg.x or (WORLD_W / 2)
+        local posY = msg.y or (WORLD_H / 2)
+        print("Player joined: " .. playerId .. " at (" .. posX .. ", " .. posY .. ")")
         -- Don't create remote player for ourselves
         if playerId and playerId ~= self.playerId then
             if not self.remotePlayers[playerId] then
-                self.remotePlayers[playerId] = RemotePlayer:new(msg.x or 400, msg.y or 300)
-                print("Created remote player: " .. playerId .. " at (" .. (msg.x or 400) .. ", " .. (msg.y or 300) .. ")")
+                self.remotePlayers[playerId] = RemotePlayer:new(posX, posY)
+                print("Created remote player: " .. playerId .. " at (" .. posX .. ", " .. posY .. ")")
             else
-                print("Remote player already exists: " .. playerId)
+                print("Remote player already exists: " .. playerId .. ", updating position to (" .. posX .. ", " .. posY .. ")")
+                self.remotePlayers[playerId]:setTargetPosition(posX, posY, "down")
             end
             -- Hide menu when a player joins (host sees client join, client sees host join)
             if self.menu:isVisible() then

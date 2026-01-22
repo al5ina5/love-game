@@ -122,12 +122,8 @@ function RelayClient:poll()
             print("RelayClient: Opponent connected to relay!")
             self.paired = true
             -- When paired, both players should send their initial PLAYER_JOIN message
-            -- Host sends its join message
-            if self.playerId == "host" then
-                local Protocol = require("src.net.protocol")
-                self:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "host", 400, 300))
-                print("RelayClient: Host sent initial PLAYER_JOIN message")
-            end
+            -- This is handled in connection_manager, so we don't need to send it here again
+            -- The connection_manager sends PLAYER_JOIN with actual player position
             -- Client already sent its join message in connection_manager, so we're good
         elseif line == "OPPONENT_LEFT" then
             print("RelayClient: Opponent left the room!")
@@ -140,16 +136,21 @@ function RelayClient:poll()
             -- Could generate an error message for the game to handle
         elseif line ~= "" then
             local msg = Protocol.decode(line)
-            if msg and msg.id ~= self.playerId then
-                -- Translate protocol types to match LAN behavior
-                if msg.type == Protocol.MSG.PLAYER_JOIN then 
-                    msg.type = "player_joined"
-                elseif msg.type == Protocol.MSG.PLAYER_LEAVE then 
-                    msg.type = "player_left"
-                elseif msg.type == Protocol.MSG.PLAYER_MOVE then
-                    msg.type = "player_moved"
+            if msg then
+                if msg.id == self.playerId then
+                    print("RelayClient: Ignoring our own message: " .. (msg.type or "unknown"))
+                else
+                    -- Translate protocol types to match LAN behavior
+                    if msg.type == Protocol.MSG.PLAYER_JOIN then 
+                        msg.type = "player_joined"
+                        print("RelayClient: Decoded PLAYER_JOIN: id=" .. (msg.id or "?") .. ", x=" .. (msg.x or "?") .. ", y=" .. (msg.y or "?"))
+                    elseif msg.type == Protocol.MSG.PLAYER_LEAVE then 
+                        msg.type = "player_left"
+                    elseif msg.type == Protocol.MSG.PLAYER_MOVE then
+                        msg.type = "player_moved"
+                    end
+                    table.insert(messages, msg)
                 end
-                table.insert(messages, msg)
             end
         end
     end

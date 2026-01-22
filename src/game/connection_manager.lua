@@ -183,8 +183,10 @@ function ConnectionManager.hostOnline(isPublic, game)
         -- Host should send initial PLAYER_JOIN when paired (handled in relay_client.lua)
         -- But also send it immediately so client knows about host
         local Protocol = require('src.net.protocol')
-        relayClient:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "host", 400, 300))
-        print("Connection: Host sent initial PLAYER_JOIN message")
+        local playerX = game.player and game.player.x or 400
+        local playerY = game.player and game.player.y or 300
+        relayClient:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "host", math.floor(playerX), math.floor(playerY)))
+        print("Connection: Host sent initial PLAYER_JOIN message at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ")")
     else
         print("Connection: WARNING - Relay not connected, network adapter not created")
         -- Still set up basic state so room code is shown
@@ -254,8 +256,10 @@ function ConnectionManager.joinOnline(roomCode, game)
     
     -- Notify relay we are ready (client sends PLAYER_JOIN immediately)
     local Protocol = require('src.net.protocol')
-    relayClient:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "client", 400, 300))
-    print("Connection: Client sent initial PLAYER_JOIN message")
+    local playerX = game.player and game.player.x or 400
+    local playerY = game.player and game.player.y or 300
+    relayClient:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "client", math.floor(playerX), math.floor(playerY)))
+    print("Connection: Client sent initial PLAYER_JOIN message at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ")")
     
     -- Don't hide menu yet - wait for host's PLAYER_JOIN message
     -- Menu will be hidden when player_joined message is received
