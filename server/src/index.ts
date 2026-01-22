@@ -313,32 +313,42 @@ const tcpServer = net.createServer((socket: net.Socket) => {
   socket.setTimeout(300000); // 5 minutes
 });
 
-tcpServer.on('error', (err: Error) => {
-  console.error(`[TCP] Server error: ${err.message}`);
-  console.error(`[TCP] This might mean port ${TCP_PORT} is not available or Railway doesn't expose it`);
-});
-
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
-  console.log(`📡 TCP Relay listening on port ${TCP_PORT}`);
-  console.log(`📡 TCP Relay will accept connections on ${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}:${TCP_PORT}`);
-}).on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[TCP] Port ${TCP_PORT} is already in use`);
-  } else {
-    console.error(`[TCP] Failed to start relay server: ${err.message}`);
-  }
-});
-
-// Start HTTP/WebSocket server
+// Start HTTP/WebSocket server FIRST (Railway health checks & create-room use PORT)
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  console.error(`[HTTP] Server error: ${err.message}`);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[HTTP] Port ${PORT} is already in use`);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Boon Snatch Server running on port ${PORT}`);
   console.log(`📡 WebSocket available at ws://localhost:${PORT}/ws`);
-  
+
   if (!process.env.KV_REST_API_TOKEN) {
     console.warn('⚠️  Warning: KV_REST_API_TOKEN not set');
   }
   if (!process.env.KV_REST_API_URL) {
     console.warn('⚠️  Warning: KV_REST_API_URL not set');
+  }
+
+  // Start TCP relay AFTER HTTP is up. Use different port than HTTP to avoid EADDRINUSE.
+  if (TCP_PORT === PORT) {
+    console.warn(`[TCP] Skipping TCP relay: PORT (${PORT}) equals TCP_PORT. Configure Railway TCP Proxy to a different internal port.`);
+  } else {
+    tcpServer.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`[TCP] Port ${TCP_PORT} already in use — relay disabled. HTTP/create-room still work.`);
+      } else {
+        console.warn(`[TCP] Relay error: ${err.message}`);
+      }
+    });
+    tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
+      console.log(`📡 TCP Relay listening on port ${TCP_PORT}`);
+      console.log(`📡 TCP Relay: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}:${TCP_PORT}`);
+    });
   }
 });
