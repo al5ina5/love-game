@@ -191,8 +191,12 @@ app.get('/health', (req: Request, res: Response) => {
 
 // --- TCP Relay Server (for real-time game messages) ---
 // Railway TCP Proxy: Configure in Railway dashboard -> Service -> Networking -> TCP Proxy
-// Set the internal port (e.g., 12346) and Railway will provide a proxy like turntable.proxy.rlwy.net:32378
-const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
+// Railway sets PORT for HTTP. For TCP, use a different port (e.g., 12347) or Railway's TCP proxy internal port.
+// If Railway sets PORT=12346 (TCP proxy), we need to use a different port for HTTP or detect Railway's setup.
+const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
+// Use a different port for TCP relay to avoid conflict with HTTP PORT
+// Railway TCP Proxy forwards to this internal port
+const TCP_PORT = parseInt(process.env.TCP_PORT || (HTTP_PORT === 12346 ? '12347' : '12346'), 10);
 const roomSockets = new Map<string, net.Socket[]>();
 
 const tcpServer = net.createServer((socket: net.Socket) => {
@@ -314,19 +318,17 @@ const tcpServer = net.createServer((socket: net.Socket) => {
 });
 
 // Start HTTP/WebSocket server FIRST (Railway health checks & create-room use PORT)
-const PORT = parseInt(process.env.PORT || '3000', 10);
-
 server.on('error', (err: NodeJS.ErrnoException) => {
   console.error(`[HTTP] Server error: ${err.message}`);
   if (err.code === 'EADDRINUSE') {
-    console.error(`[HTTP] Port ${PORT} is already in use`);
+    console.error(`[HTTP] Port ${HTTP_PORT} is already in use`);
   }
   process.exit(1);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Boon Snatch Server running on port ${PORT}`);
-  console.log(`📡 WebSocket available at ws://localhost:${PORT}/ws`);
+server.listen(HTTP_PORT, '0.0.0.0', () => {
+  console.log(`🚀 Boon Snatch Server running on port ${HTTP_PORT}`);
+  console.log(`📡 WebSocket available at ws://localhost:${HTTP_PORT}/ws`);
 
   if (!process.env.KV_REST_API_TOKEN) {
     console.warn('⚠️  Warning: KV_REST_API_TOKEN not set');
@@ -336,8 +338,9 @@ server.listen(PORT, '0.0.0.0', () => {
   }
 
   // Start TCP relay AFTER HTTP is up. Use different port than HTTP to avoid EADDRINUSE.
-  if (TCP_PORT === PORT) {
-    console.warn(`[TCP] Skipping TCP relay: PORT (${PORT}) equals TCP_PORT. Configure Railway TCP Proxy to a different internal port.`);
+  if (TCP_PORT === HTTP_PORT) {
+    console.warn(`[TCP] Skipping TCP relay: HTTP_PORT (${HTTP_PORT}) equals TCP_PORT (${TCP_PORT}).`);
+    console.warn(`[TCP] Configure Railway: HTTP on port ${HTTP_PORT}, TCP Proxy on a different internal port (e.g., ${HTTP_PORT === 12346 ? '12347' : '12346'}).`);
   } else {
     tcpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
@@ -349,6 +352,7 @@ server.listen(PORT, '0.0.0.0', () => {
     tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
       console.log(`📡 TCP Relay listening on port ${TCP_PORT}`);
       console.log(`📡 TCP Relay: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}:${TCP_PORT}`);
+      console.log(`📡 Note: Update Railway TCP Proxy to forward to internal port ${TCP_PORT}`);
     });
   }
 });
