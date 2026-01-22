@@ -1,7 +1,7 @@
 // Cloudflare KV operations
 // Uses REST API since we're not in a Cloudflare Worker
 
-interface Room {
+export interface Room {
   code: string;
   isPublic: boolean;
   hostId: string;
