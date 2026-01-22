@@ -1,27 +1,12 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "npm install && npm run build"
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
   },
   "deploy": {
     "startCommand": "npm start",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
-  },
-  "services": [
-    {
-      "source": ".",
-      "ports": [
-        {
-          "port": 8080,
-          "protocol": "tcp"
-        },
-        {
-          "port": 12346,
-          "protocol": "tcp"
-        }
-      ]
-    }
-  ]
+  }
 }

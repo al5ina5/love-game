@@ -190,6 +190,8 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // --- TCP Relay Server (for real-time game messages) ---
+// Railway TCP Proxy: Configure in Railway dashboard -> Service -> Networking -> TCP Proxy
+// Set the internal port (e.g., 12346) and Railway will provide a proxy like turntable.proxy.rlwy.net:32378
 const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
 const roomSockets = new Map<string, net.Socket[]>();
 
@@ -198,15 +200,35 @@ const tcpServer = net.createServer((socket: net.Socket) => {
   let buffer = '';
   let cleanedUp = false;
 
+  // Set keep-alive to prevent connection timeouts
+  socket.setKeepAlive(true, 60000);
+  socket.setNoDelay(true);
+  
+  console.log(`[TCP] New connection from ${socket.remoteAddress}:${socket.remotePort}`);
+
   socket.on('data', (data: Buffer) => {
-    buffer += data.toString();
+    const dataStr = data.toString();
+    console.log(`[TCP] Received data from ${socket.remoteAddress}: "${dataStr.trim()}"`);
+    buffer += dataStr;
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      if (line.startsWith('JOIN:')) {
-        const code = line.split(':')[1].toUpperCase();
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue; // Skip empty lines
+      
+      console.log(`[TCP] Processing line: "${trimmedLine}"`);
+      
+      if (trimmedLine.startsWith('JOIN:')) {
+        const code = trimmedLine.split(':')[1].trim().toUpperCase();
+        if (!code) {
+          console.log(`[TCP] Invalid JOIN message: "${trimmedLine}"`);
+          socket.write('ERROR:Invalid room code\n');
+          continue;
+        }
+        
         currentRoomCode = code;
+        console.log(`[TCP] Player joining room: ${code}`);
         
         let sockets = roomSockets.get(code);
         if (!sockets) {
@@ -219,8 +241,12 @@ const tcpServer = net.createServer((socket: net.Socket) => {
             console.log(`[TCP] Player joined room ${code} (2nd player)`);
             
             // Notify both players they are paired
-            sockets.forEach(s => s.write('PAIRED\n'));
+            sockets.forEach(s => {
+              console.log(`[TCP] Sending PAIRED to player`);
+              s.write('PAIRED\n');
+            });
           } else {
+            console.log(`[TCP] Room ${code} is full`);
             socket.write('ERROR:Room full\n');
             socket.end();
           }
@@ -232,10 +258,17 @@ const tcpServer = net.createServer((socket: net.Socket) => {
       if (currentRoomCode) {
         const sockets = roomSockets.get(currentRoomCode);
         if (sockets) {
+          console.log(`[TCP] Forwarding message to ${sockets.length - 1} other player(s) in room ${currentRoomCode}`);
           sockets.forEach(s => {
-            if (s !== socket) s.write(line + '\n');
+            if (s !== socket) {
+              s.write(trimmedLine + '\n');
+            }
           });
+        } else {
+          console.log(`[TCP] Warning: No sockets found for room ${currentRoomCode}`);
         }
+      } else {
+        console.log(`[TCP] Warning: Received message but no room code set: "${trimmedLine}"`);
       }
     }
   });
@@ -261,15 +294,39 @@ const tcpServer = net.createServer((socket: net.Socket) => {
     }
   };
 
-  socket.on('close', cleanup);
-  socket.on('error', (err) => {
-    console.log(`[TCP] Socket error: ${err.message}`);
+  socket.on('close', () => {
+    console.log(`[TCP] Socket closed for room ${currentRoomCode || 'unknown'}`);
     cleanup();
   });
+  
+  socket.on('error', (err) => {
+    console.log(`[TCP] Socket error for room ${currentRoomCode || 'unknown'}: ${err.message}`);
+    cleanup();
+  });
+  
+  socket.on('timeout', () => {
+    console.log(`[TCP] Socket timeout for room ${currentRoomCode || 'unknown'}`);
+    socket.end();
+  });
+  
+  // Set a longer timeout
+  socket.setTimeout(300000); // 5 minutes
+});
+
+tcpServer.on('error', (err: Error) => {
+  console.error(`[TCP] Server error: ${err.message}`);
+  console.error(`[TCP] This might mean port ${TCP_PORT} is not available or Railway doesn't expose it`);
 });
 
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
   console.log(`📡 TCP Relay listening on port ${TCP_PORT}`);
+  console.log(`📡 TCP Relay will accept connections on ${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}:${TCP_PORT}`);
+}).on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[TCP] Port ${TCP_PORT} is already in use`);
+  } else {
+    console.error(`[TCP] Failed to start relay server: ${err.message}`);
+  }
 });
 
 // Start HTTP/WebSocket server

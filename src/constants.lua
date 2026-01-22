@@ -6,10 +6,16 @@ local Constants = {}
 -- Online multiplayer API endpoint
 Constants.API_BASE_URL = "https://love-game-production.up.railway.app"
 -- TCP Relay server for real-time communication
--- NOTE: You need to set up a TCP relay server similar to blockdropper's relay server
--- The relay server should listen on a TCP port and relay messages between players in the same room
--- For now, using the same host but different port - update these when relay server is deployed
-Constants.RELAY_HOST = "love-game-production.up.railway.app" 
-Constants.RELAY_PORT = 12346  -- TCP relay port (needs to be configured in Railway)
+-- Railway exposes TCP ports via a TCP Proxy service
+-- 
+-- SETUP INSTRUCTIONS:
+-- 1. Go to Railway dashboard -> Your service -> Networking
+-- 2. Enable "TCP Proxy" and set the port to 12346 (the internal port your server listens on)
+-- 3. Railway will provide a proxy address like: turntable.proxy.rlwy.net:32378
+-- 4. Update RELAY_HOST and RELAY_PORT below with the values Railway provides
+--
+-- For now, using placeholder values - UPDATE THESE after configuring TCP Proxy in Railway:
+Constants.RELAY_HOST = "turntable.proxy.rlwy.net"  -- UPDATE: Your Railway TCP proxy host
+Constants.RELAY_PORT = 32378  -- UPDATE: Your Railway TCP proxy port
 
 return Constants

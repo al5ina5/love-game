@@ -72,11 +72,18 @@ function RelayClient:connect(roomCode, playerId)
     
     -- Connection successful
     tcp:setoption("tcp-nodelay", true)
+    tcp:settimeout(0)  -- Non-blocking for polling
     self.tcp = tcp
     self.connected = true
     
-    -- Send handshake
-    self:send("JOIN:" .. self.roomCode)
+    -- Send handshake immediately
+    local success, err = self:send("JOIN:" .. self.roomCode)
+    if not success then
+        print("RelayClient: Failed to send JOIN message: " .. tostring(err))
+        tcp:close()
+        self.connected = false
+        return false
+    end
     print("RelayClient: Connected and joined room " .. self.roomCode)
     
     return true
@@ -86,6 +93,9 @@ function RelayClient:poll()
     if not self.connected or not self.tcp then return {} end
     
     local messages = {}
+    
+    -- Use non-blocking receive with timeout
+    self.tcp:settimeout(0)
     local data, err, partial = self.tcp:receive("*a") -- Receive all available data
     
     if err == "closed" then
@@ -94,6 +104,13 @@ function RelayClient:poll()
         -- Generate a player_left message so the game handles it properly
         table.insert(messages, { type = "player_left", id = "opponent", disconnectReason = "connection_closed" })
         return messages
+    elseif err and err ~= "timeout" then
+        print("RelayClient: Receive error: " .. tostring(err))
+        if err == "closed" or err:match("closed") then
+            self.connected = false
+            table.insert(messages, { type = "player_left", id = "opponent", disconnectReason = "connection_closed" })
+            return messages
+        end
     end
     
     local combinedData = self.buffer .. (data or partial or "")
