@@ -12,6 +12,13 @@ export interface Room {
   lastHeartbeat: number;
 }
 
+export interface PublicRoomInfo {
+  code: string;
+  playerCount: number;
+  maxPlayers: number;
+  createdAt: number;
+}
+
 export class KVStore {
   private redis: Redis;
 
@@ -89,11 +96,38 @@ export class KVStore {
     }
   }
 
-  async listPublicRooms(): Promise<Room[]> {
-    // Note: Cloudflare KV doesn't have native list/query
-    // We'll need to maintain a separate index or use a different approach
-    // For now, we'll return empty array and implement proper indexing later if needed
-    // Alternative: Use Redis or maintain an in-memory cache of public rooms
-    return [];
+  async listPublicRooms(): Promise<PublicRoomInfo[]> {
+    try {
+      // Get all room keys matching the pattern
+      const keys = await this.redis.keys('boonsnatch:room:*');
+      
+      if (!keys || keys.length === 0) {
+        return [];
+      }
+      
+      // Fetch all rooms in parallel
+      const roomPromises = keys.map(key => this.redis.get<Room>(key));
+      const rooms = await Promise.all(roomPromises);
+      
+      // Filter for public rooms and active rooms (heartbeat within last 2 minutes)
+      const now = Date.now();
+      const publicRooms: PublicRoomInfo[] = rooms
+        .filter((room): room is Room => 
+          room !== null && 
+          room.isPublic === true &&
+          (now - room.lastHeartbeat) < 120000 // Active within last 2 minutes
+        )
+        .map(room => ({
+          code: room.code,
+          playerCount: room.players.length,
+          maxPlayers: 4, // Default max players
+          createdAt: room.createdAt,
+        }));
+      
+      return publicRooms;
+    } catch (error) {
+      console.error('Error listing public rooms from Upstash:', error);
+      return [];
+    }
   }
 }

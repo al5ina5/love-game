@@ -19,12 +19,16 @@ Menu.STATE = {
     FIND_GAME = "find_game",
 }
 
--- Design constants (matching dialogue style)
-local MARGIN = 12
-local TITLE_FONT_SIZE = 24
-local BODY_FONT_SIZE = 20
-local OPTION_FONT_SIZE = 18
-local OPTION_SPACING = 22
+-- Design constants (clean, standard menu)
+local MARGIN = 16
+local TITLE_FONT_SIZE = 16
+local BODY_FONT_SIZE = 12
+local OPTION_FONT_SIZE = 12
+local OPTION_SPACING = 18
+
+-- Target game resolution (for calculating relative positions)
+local GAME_WIDTH = 320
+local GAME_HEIGHT = 180
 
 function Menu:new()
     local self = setmetatable({}, Menu)
@@ -35,7 +39,7 @@ function Menu:new()
     -- Online client for REST API
     self.onlineClient = OnlineClient:new()
     
-    -- Load fonts (matching dialogue style)
+    -- Load fonts with nearest-neighbor filtering for crisp pixel art
     self.titleFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", TITLE_FONT_SIZE)
     self.titleFont:setFilter("nearest", "nearest")
     
@@ -45,7 +49,7 @@ function Menu:new()
     self.optionFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", OPTION_FONT_SIZE)
     self.optionFont:setFilter("nearest", "nearest")
     
-    self.smallFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", 14)
+    self.smallFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", 10)
     self.smallFont:setFilter("nearest", "nearest")
     
     -- Menu navigation
@@ -119,85 +123,120 @@ function Menu:draw()
     end
 end
 
--- Draw standardized menu background
+-- Draw standardized menu background (at native resolution with proper scaling)
 function Menu:drawBackground()
-    local boxW = 280
-    local boxH = 160
-    local boxX = (320 - boxW) / 2
-    local boxY = (180 - boxH) / 2
+    local screenW = love.graphics.getWidth()
+    local screenH = love.graphics.getHeight()
+    local scale = math.min(screenW / GAME_WIDTH, screenH / GAME_HEIGHT)
+    local offsetX = (screenW - GAME_WIDTH * scale) / 2
+    local offsetY = (screenH - GAME_HEIGHT * scale) / 2
     
-    -- Background (matching dialogue)
-    love.graphics.setColor(0.06, 0.06, 0.10, 0.95)
-    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 4, 4)
+    local boxW = 300 * scale
+    local boxH = 170 * scale
+    local boxX = offsetX + (GAME_WIDTH * scale - boxW) / 2
+    local boxY = offsetY + (GAME_HEIGHT * scale - boxH) / 2
     
-    -- Border (matching dialogue)
-    love.graphics.setColor(0.4, 0.4, 0.45, 1)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 4, 4)
-    love.graphics.setColor(0.65, 0.65, 0.7, 1)
+    -- Background
+    love.graphics.setColor(0.08, 0.08, 0.12, 0.98)
+    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 4 * scale, 4 * scale)
+    
+    -- Border
+    love.graphics.setColor(0.3, 0.3, 0.35, 1)
     love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", boxX + 1, boxY + 1, boxW - 2, boxH - 2, 3, 3)
+    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 4 * scale, 4 * scale)
+    
+    -- Store for other drawing functions
+    self._screenW = screenW
+    self._screenH = screenH
+    self._scale = scale
+    self._offsetX = offsetX
+    self._offsetY = offsetY
+    self._boxX = boxX
+    self._boxY = boxY
+    self._boxW = boxW
+    self._boxH = boxH
 end
 
--- Draw title (standardized)
+-- Draw title (standardized, with safe margins)
 function Menu:drawTitle(text, y)
+    if not self._scale then return end
+    
     love.graphics.setFont(self.titleFont)
     love.graphics.setColor(1, 1, 1)
-    love.graphics.printf(text, 0, y, 320, "center")
+    -- Scale Y position and center text
+    local scaledY = self._offsetY + y * self._scale
+    local safeY = math.max(scaledY, self._offsetY + 10 * self._scale)
+    love.graphics.printf(text, self._offsetX, safeY, GAME_WIDTH * self._scale, "center")
 end
 
--- Draw option list (standardized)
+-- Draw option list (standardized, with safe bounds)
 function Menu:drawOptions(options, startY)
+    if not self._scale then return end
+    
     love.graphics.setFont(self.optionFont)
     
-    local y = startY
+    local y = self._offsetY + startY * self._scale
+    local maxY = self._offsetY + 165 * self._scale
+    
     for i, option in ipairs(options) do
+        -- Ensure options don't clip at bottom
+        if y + self.optionFont:getHeight() > maxY then break end
+        
+        local x = self._offsetX + 40 * self._scale
+        
         if i == self.selectedIndex then
-            -- Selected option
-            love.graphics.setColor(1, 1, 0.5)
-            love.graphics.print("> " .. option, 40, y)
+            -- Selected option with background
+            love.graphics.setColor(0.2, 0.3, 0.4, 1)
+            love.graphics.rectangle("fill", x - 5 * self._scale, y - 2 * self._scale, 250 * self._scale, 14 * self._scale, 2 * self._scale, 2 * self._scale)
+            love.graphics.setColor(0.5, 0.7, 1)
+            love.graphics.print("> " .. option, x, y)
         else
             -- Unselected option
             love.graphics.setColor(0.8, 0.8, 0.8)
-            love.graphics.print("  " .. option, 40, y)
+            love.graphics.print("  " .. option, x, y)
         end
-        y = y + OPTION_SPACING
+        y = y + OPTION_SPACING * self._scale
     end
 end
 
--- Draw hint text (standardized)
+-- Draw hint text (standardized, with safe margins)
 function Menu:drawHint(text)
+    if not self._scale then return end
+    
     love.graphics.setFont(self.smallFont)
     love.graphics.setColor(0.5, 0.5, 0.5)
-    love.graphics.printf(text, 0, 160, 320, "center")
+    -- Ensure text stays within bounds
+    local safeY = math.min(
+        self._offsetY + 165 * self._scale,
+        self._offsetY + GAME_HEIGHT * self._scale - self.smallFont:getHeight() - 2 * self._scale
+    )
+    love.graphics.printf(text, self._offsetX, safeY, GAME_WIDTH * self._scale, "center")
 end
 
 function Menu:drawMainMenu()
-    self:drawTitle("Boon Snatch", 25)
+    self:drawTitle("Boon Snatch", 30)
     
     local options = {
         "Multiplayer",
         "Back to Game",
     }
     
-    self:drawOptions(options, 65)
-    self:drawHint("Arrow Keys: Select | Enter: Confirm | ESC: Back")
+    self:drawOptions(options, 70)
 end
 
 function Menu:drawMultiplayerMenu()
-    self:drawTitle("Multiplayer", 25)
+    self:drawTitle("Multiplayer", 30)
     
     local options = {
         "Online",
         "Back",
     }
     
-    self:drawOptions(options, 65)
-    self:drawHint("Arrow Keys: Select | Enter: Confirm | ESC: Back")
+    self:drawOptions(options, 70)
 end
 
 function Menu:drawOnlineMenu()
-    self:drawTitle("Online", 25)
+    self:drawTitle("Online", 30)
     
     local options = {
         "Create Game",
@@ -206,66 +245,70 @@ function Menu:drawOnlineMenu()
         "Back",
     }
     
-    self:drawOptions(options, 55)
-    self:drawHint("Arrow Keys: Select | Enter: Confirm | ESC: Back")
+    self:drawOptions(options, 60)
 end
 
 function Menu:drawCreateGame()
-    self:drawTitle("Create Game", 25)
+    if not self._scale then return end
+    
+    self:drawTitle("Create Game", 30)
     
     love.graphics.setFont(self.bodyFont)
-    love.graphics.setColor(0.7, 0.7, 0.7)
-    love.graphics.print("Visibility:", 40, 55)
+    love.graphics.setColor(0.8, 0.8, 0.8)
+    love.graphics.print("Visibility:", self._offsetX + 40 * self._scale, self._offsetY + 60 * self._scale)
     
-    -- Public/Private toggle
+    -- Public/Private toggle with clear selection
+    local toggleY = self._offsetY + 78 * self._scale
     if self.isPublic then
-        love.graphics.setColor(1, 1, 0.5)
-        love.graphics.print("> PUBLIC", 40, 72)
-        love.graphics.setColor(0.6, 0.6, 0.6)
-        love.graphics.print("  Private", 40, 92)
+        -- Public selected
+        love.graphics.setColor(0.2, 0.4, 0.2, 1)
+        love.graphics.rectangle("fill", self._offsetX + 38 * self._scale, toggleY - 2 * self._scale, 80 * self._scale, 18 * self._scale, 2 * self._scale, 2 * self._scale)
+        love.graphics.setColor(0.5, 1, 0.5)
+        love.graphics.print("PUBLIC", self._offsetX + 40 * self._scale, toggleY)
+        love.graphics.setColor(0.5, 0.5, 0.5)
+        love.graphics.print("Private", self._offsetX + 130 * self._scale, toggleY)
     else
-        love.graphics.setColor(0.6, 0.6, 0.6)
-        love.graphics.print("  Public", 40, 72)
-        love.graphics.setColor(1, 1, 0.5)
-        love.graphics.print("> PRIVATE", 40, 92)
+        -- Private selected
+        love.graphics.setColor(0.4, 0.2, 0.2, 1)
+        love.graphics.rectangle("fill", self._offsetX + 128 * self._scale, toggleY - 2 * self._scale, 80 * self._scale, 18 * self._scale, 2 * self._scale, 2 * self._scale)
+        love.graphics.setColor(0.5, 0.5, 0.5)
+        love.graphics.print("Public", self._offsetX + 40 * self._scale, toggleY)
+        love.graphics.setColor(1, 0.5, 0.5)
+        love.graphics.print("PRIVATE", self._offsetX + 130 * self._scale, toggleY)
     end
     
     -- Create button
-    love.graphics.setColor(0.5, 1, 0.5)
-    love.graphics.print("Press ENTER to Create", 40, 115)
-    
-    self:drawHint("Left/Right: Toggle | ESC: Back")
+    love.graphics.setColor(0.4, 0.8, 0.4)
+    love.graphics.print("ENTER: Create", self._offsetX + 40 * self._scale, self._offsetY + 105 * self._scale)
 end
 
 function Menu:drawWaiting()
-    self:drawTitle("Waiting for Player", 25)
+    if not self._scale then return end
+    
+    self:drawTitle("Waiting for Player", 30)
     
     if self.roomCode then
         -- Display room code prominently
         love.graphics.setFont(self.titleFont)
-        love.graphics.setColor(1, 1, 0.5)
-        love.graphics.printf(self.roomCode, 0, 70, 320, "center")
-        
-        love.graphics.setFont(self.bodyFont)
-        love.graphics.setColor(0.7, 0.7, 0.7)
-        love.graphics.printf("Share this code with your friend", 0, 100, 320, "center")
+        love.graphics.setColor(1, 1, 0.3)
+        love.graphics.printf(self.roomCode, self._offsetX, self._offsetY + 75 * self._scale, GAME_WIDTH * self._scale, "center")
     else
         love.graphics.setFont(self.bodyFont)
         love.graphics.setColor(0.6, 0.6, 0.6)
-        love.graphics.printf("Creating room...", 0, 80, 320, "center")
+        love.graphics.printf("Creating room...", self._offsetX, self._offsetY + 85 * self._scale, GAME_WIDTH * self._scale, "center")
     end
-    
-    self:drawHint("ESC: Cancel")
 end
 
 function Menu:drawJoinCode()
-    self:drawTitle("Join With Code", 25)
+    if not self._scale then return end
+    
+    self:drawTitle("Join With Code", 30)
     
     -- Draw 6 digit boxes
-    local startX = 50
-    local y = 75
-    local boxSize = 32
-    local spacing = 6
+    local startX = self._offsetX + 40 * self._scale
+    local y = self._offsetY + 80 * self._scale
+    local boxSize = 28 * self._scale
+    local spacing = 8 * self._scale
     
     love.graphics.setFont(self.bodyFont)
     
@@ -274,63 +317,60 @@ function Menu:drawJoinCode()
         
         -- Box background
         if i == self.currentDigitIndex then
-            love.graphics.setColor(0.2, 0.2, 0.3, 1)
-            love.graphics.rectangle("fill", x - 2, y - 2, boxSize + 4, boxSize + 4, 2, 2)
-            love.graphics.setColor(1, 1, 0.5)
-            love.graphics.rectangle("line", x - 2, y - 2, boxSize + 4, boxSize + 4, 2, 2)
+            love.graphics.setColor(0.2, 0.3, 0.4, 1)
+            love.graphics.rectangle("fill", x - 2 * self._scale, y - 2 * self._scale, boxSize + 4 * self._scale, boxSize + 4 * self._scale, 2 * self._scale, 2 * self._scale)
+            love.graphics.setColor(0.5, 0.7, 1)
+            love.graphics.rectangle("line", x - 2 * self._scale, y - 2 * self._scale, boxSize + 4 * self._scale, boxSize + 4 * self._scale, 2 * self._scale, 2 * self._scale)
         else
             love.graphics.setColor(0.15, 0.15, 0.2, 1)
-            love.graphics.rectangle("fill", x, y, boxSize, boxSize, 2, 2)
-            love.graphics.setColor(0.5, 0.5, 0.5)
-            love.graphics.rectangle("line", x, y, boxSize, boxSize, 2, 2)
+            love.graphics.rectangle("fill", x, y, boxSize, boxSize, 2 * self._scale, 2 * self._scale)
+            love.graphics.setColor(0.4, 0.4, 0.4)
+            love.graphics.rectangle("line", x, y, boxSize, boxSize, 2 * self._scale, 2 * self._scale)
         end
         
         -- Draw digit
         love.graphics.setColor(1, 1, 1)
         if self.roomCodeDigits[i] and self.roomCodeDigits[i] ~= "" then
-            love.graphics.printf(self.roomCodeDigits[i], x, y + 6, boxSize, "center")
+            love.graphics.printf(self.roomCodeDigits[i], x, y + 4 * self._scale, boxSize, "center")
         end
     end
-    
-    love.graphics.setFont(self.smallFont)
-    love.graphics.setColor(0.7, 0.7, 0.7)
-    love.graphics.printf("Enter 0-9 for each digit", 0, 115, 320, "center")
-    
-    self:drawHint("ENTER: Join | ESC: Back")
 end
 
 function Menu:drawFindGame()
-    self:drawTitle("Find Game", 25)
+    if not self._scale then return end
+    
+    self:drawTitle("Find Game", 30)
     
     if self.refreshingRooms then
         love.graphics.setFont(self.bodyFont)
         love.graphics.setColor(0.6, 0.6, 0.6)
-        love.graphics.printf("Loading...", 0, 80, 320, "center")
+        love.graphics.printf("Loading...", self._offsetX, self._offsetY + 85 * self._scale, GAME_WIDTH * self._scale, "center")
     elseif #self.publicRooms == 0 then
         love.graphics.setFont(self.bodyFont)
         love.graphics.setColor(0.6, 0.6, 0.6)
-        love.graphics.printf("No public rooms found", 0, 80, 320, "center")
+        love.graphics.printf("No public rooms", self._offsetX, self._offsetY + 85 * self._scale, GAME_WIDTH * self._scale, "center")
     else
         love.graphics.setFont(self.optionFont)
-        local y = 55
+        local y = self._offsetY + 60 * self._scale
+        local maxY = self._offsetY + 140 * self._scale
+        
         for i, room in ipairs(self.publicRooms) do
+            if y > maxY then break end
+            
             if i == self.selectedIndex then
-                love.graphics.setColor(0.2, 0.2, 0.3, 1)
-                love.graphics.rectangle("fill", 30, y - 2, 260, 18, 2, 2)
-                love.graphics.setColor(1, 1, 0.5)
+                love.graphics.setColor(0.2, 0.3, 0.4, 1)
+                love.graphics.rectangle("fill", self._offsetX + 30 * self._scale, y - 2 * self._scale, 260 * self._scale, 16 * self._scale, 2 * self._scale, 2 * self._scale)
+                love.graphics.setColor(0.5, 0.7, 1)
             else
-                love.graphics.setColor(0.8, 0.8, 0.8)
+                love.graphics.setColor(0.7, 0.7, 0.7)
             end
             
-            love.graphics.print("Room: " .. (room.code or "?"), 40, y)
-            love.graphics.printf((room.playerCount or 0) .. " players", 0, y, 280, "right")
+            love.graphics.print(room.code or "?", self._offsetX + 40 * self._scale, y)
+            love.graphics.printf((room.playerCount or 0) .. "/4", self._offsetX, y, (GAME_WIDTH - 40) * self._scale, "right")
             
-            y = y + 20
-            if y > 130 then break end
+            y = y + 18 * self._scale
         end
     end
-    
-    self:drawHint("ENTER: Join | R: Refresh | ESC: Back")
 end
 
 -- Input handling (unchanged from before)
@@ -458,6 +498,7 @@ end
 function Menu:handleCreateGameKey(key)
     if key == "left" or key == "right" then
         self.isPublic = not self.isPublic
+        print("Toggle visibility: " .. (self.isPublic and "PUBLIC" or "PRIVATE"))
         return true
     elseif key == "return" then
         self.state = Menu.STATE.WAITING
@@ -555,6 +596,7 @@ function Menu:createRoom()
     else
         print("Failed to create room: " .. (result.error or "Unknown error"))
         self.state = Menu.STATE.CREATE_GAME
+        -- Don't reset isPublic - keep user's choice
     end
 end
 

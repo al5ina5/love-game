@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { Room } from './kv';
+import { Room, KVStore } from './kv';
 
 interface ClientConnection {
   ws: WebSocket;
@@ -12,8 +12,10 @@ export class WebSocketManager {
   private wss: WebSocketServer;
   private clients: Map<string, ClientConnection> = new Map();
   private rooms: Map<string, Set<string>> = new Map(); // roomCode -> Set of client IDs
+  private kv: KVStore;
 
-  constructor(server: any) {
+  constructor(server: any, kv: KVStore) {
+    this.kv = kv;
     this.wss = new WebSocketServer({ server, path: '/ws' });
     this.setupWebSocket();
   }
@@ -48,6 +50,9 @@ export class WebSocketManager {
         this.rooms.set(roomCode, new Set());
       }
       this.rooms.get(roomCode)!.add(clientId);
+
+      // Update room heartbeat when connection is established
+      this.updateRoomHeartbeat(roomCode);
 
       // Send welcome message
       ws.send(JSON.stringify({
@@ -145,5 +150,17 @@ export class WebSocketManager {
 
   private generatePlayerId(): string {
     return `p${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+  }
+
+  private async updateRoomHeartbeat(roomCode: string) {
+    try {
+      const room = await this.kv.getRoom(roomCode);
+      if (room) {
+        room.lastHeartbeat = Date.now();
+        await this.kv.setRoom(room);
+      }
+    } catch (error) {
+      console.error(`Error updating heartbeat for room ${roomCode}:`, error);
+    }
   }
 }

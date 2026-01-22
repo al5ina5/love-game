@@ -359,15 +359,15 @@ function Game:draw()
     end
     
     self.camera:detach()
-    
-    -- Menu (in game space, scaled)
-    self.menu:draw()
 end
 
 -- Draw UI elements at native resolution (called outside of scale transform)
 function Game:drawUI()
     -- Dialogue renders at native resolution for crisp text
     self.dialogue:draw()
+    
+    -- Menu renders at native resolution for crisp text
+    self.menu:draw()
 end
 
 function Game:drawStoneFloor()

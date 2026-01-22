@@ -13,7 +13,7 @@ app.use(express.json());
 
 // Initialize services
 const kv = new KVStore();
-const wsManager = new WebSocketManager(server);
+const wsManager = new WebSocketManager(server, kv);
 
 // Generate 6-digit room code
 function generateRoomCode(): string {
@@ -111,12 +111,19 @@ app.post('/api/join-room', async (req: Request, res: Response) => {
 // List public rooms
 app.get('/api/list-rooms', async (req: Request, res: Response) => {
   try {
-    // Note: KV doesn't support listing, so we return empty for now
-    // In production, you'd maintain a separate index or use Redis
-    // For now, return empty array - can be enhanced later
+    const rooms = await kv.listPublicRooms();
+    
+    // Enhance with WebSocket player counts
+    const roomsWithCounts = rooms.map(room => ({
+      code: room.code,
+      playerCount: wsManager.getRoomPlayerCount(room.code) || room.playerCount || 0,
+      maxPlayers: room.maxPlayers || 4,
+      createdAt: room.createdAt,
+    }));
+    
     res.json({
       success: true,
-      rooms: [],
+      rooms: roomsWithCounts,
     });
   } catch (error) {
     console.error('Error listing rooms:', error);
