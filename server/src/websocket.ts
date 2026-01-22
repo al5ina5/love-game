@@ -61,6 +61,24 @@ export class WebSocketManager {
         roomCode,
       }));
 
+      // Send existing players to the new joiner
+      const roomClients = this.rooms.get(roomCode);
+      if (roomClients) {
+        roomClients.forEach((existingClientId) => {
+          if (existingClientId !== clientId) {
+            const existingConnection = this.clients.get(existingClientId);
+            if (existingConnection) {
+              // Tell new player about existing player
+              ws.send(JSON.stringify({
+                type: 'player_joined',
+                playerId: existingConnection.playerId,
+                isHost: existingConnection.isHost,
+              }));
+            }
+          }
+        });
+      }
+
       // Broadcast player joined to others in room
       this.broadcastToRoom(roomCode, {
         type: 'player_joined',

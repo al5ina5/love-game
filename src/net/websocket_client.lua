@@ -62,8 +62,10 @@ function WebSocketClient:connect(roomCode, playerId, isHost, wsUrl)
     -- Try to use real WebSocket if available, otherwise use polling
     local success, err = self:connectWebSocket()
     if not success then
-        print("WebSocket: Real WebSocket not available, using polling fallback")
-        -- Use polling fallback
+        print("WebSocket: Real WebSocket not available: " .. (err or "Unknown error"))
+        print("WebSocket: WARNING - Polling fallback does NOT work with the server!")
+        print("WebSocket: You need a WebSocket library with SSL support (WSS)")
+        -- Use polling fallback (but it won't actually work)
         self.connected = true
         self.connectionAttempts = 0
         -- Simulate connection message
@@ -175,22 +177,56 @@ function WebSocketClient:generateWebSocketKey()
     for i = 1, 16 do
         random = random .. string.char(math.random(0, 255))
     end
-    -- Base64 encode (simple implementation)
+    -- Base64 encode (simple implementation using bit library if available, otherwise manual)
     local base64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     local result = ""
-    for i = 1, #random, 3 do
-        local b1, b2, b3 = string.byte(random, i, i + 2)
-        b2 = b2 or 0
-        b3 = b3 or 0
-        local bitmap = (b1 << 16) | (b2 << 8) | b3
-        for j = 1, 4 do
-            local idx = ((bitmap >> (6 * (4 - j))) & 0x3F) + 1
-            result = result .. string.sub(base64chars, idx, idx)
+    
+    -- Try to use bit library if available
+    local bit = pcall(require, "bit")
+    if bit then
+        bit = require("bit")
+        for i = 1, #random, 3 do
+            local b1, b2, b3 = string.byte(random, i, i + 2)
+            b2 = b2 or 0
+            b3 = b3 or 0
+            local bitmap = bit.bor(bit.lshift(b1, 16), bit.lshift(b2, 8), b3)
+            for j = 1, 4 do
+                local shift = 6 * (4 - j)
+                local idx = bit.band(bit.rshift(bitmap, shift), 0x3F) + 1
+                result = result .. string.sub(base64chars, idx, idx)
+            end
+        end
+    else
+        -- Manual base64 encoding without bit operations
+        for i = 1, #random, 3 do
+            local b1, b2, b3 = string.byte(random, i, i + 2)
+            b2 = b2 or 0
+            b3 = b3 or 0
+            
+            -- Encode first 6 bits of b1
+            local idx1 = math.floor(b1 / 4) + 1
+            result = result .. string.sub(base64chars, idx1, idx1)
+            
+            -- Encode last 2 bits of b1 + first 4 bits of b2
+            local idx2 = ((b1 % 4) * 16 + math.floor(b2 / 16)) + 1
+            result = result .. string.sub(base64chars, idx2, idx2)
+            
+            -- Encode last 4 bits of b2 + first 2 bits of b3
+            local idx3 = ((b2 % 16) * 4 + math.floor(b3 / 64)) + 1
+            result = result .. string.sub(base64chars, idx3, idx3)
+            
+            -- Encode last 6 bits of b3
+            local idx4 = (b3 % 64) + 1
+            result = result .. string.sub(base64chars, idx4, idx4)
         end
     end
+    
     -- Add padding if needed
     local pad = (3 - (#random % 3)) % 3
-    result = result:sub(1, #result - pad) .. string.rep("=", pad)
+    if pad > 0 then
+        result = result:sub(1, #result - pad) .. string.rep("=", pad)
+    end
+    
     return result
 end
 
@@ -285,8 +321,11 @@ function WebSocketClient:sendMessage(msgType, ...)
             print("WebSocket: Failed to send message: " .. (err or "Unknown error"))
             return false
         end
+        -- Debug: print what we're sending
+        print("WebSocket: Sent message: " .. messageStr:sub(1, 100))
     else
-        -- Polling fallback: queue message
+        -- Polling fallback: queue message (but warn that this won't work)
+        print("WARNING: WebSocket not connected, message queued but won't be sent!")
         table.insert(self.messageQueue, message)
     end
     
@@ -300,10 +339,24 @@ function WebSocketClient:sendWebSocketFrame(data)
     local len = #data
     local frame = string.char(0x81)  -- FIN + text frame
     
+    -- Try to use bit library if available
+    local bit = pcall(require, "bit")
+    if bit then
+        bit = require("bit")
+    end
+    
     if len < 126 then
         frame = frame .. string.char(len)
     elseif len < 65536 then
-        frame = frame .. string.char(126) .. string.char((len >> 8) & 0xFF) .. string.char(len & 0xFF)
+        local byte1, byte2
+        if bit then
+            byte1 = bit.band(bit.rshift(len, 8), 0xFF)
+            byte2 = bit.band(len, 0xFF)
+        else
+            byte1 = math.floor(len / 256) % 256
+            byte2 = len % 256
+        end
+        frame = frame .. string.char(126) .. string.char(byte1) .. string.char(byte2)
     else
         return false, "Message too large"
     end
@@ -334,17 +387,35 @@ function WebSocketClient:receiveWebSocketFrame()
         return nil, "Incomplete header"
     end
     
+    -- Try to use bit library if available
+    local bit = pcall(require, "bit")
+    if bit then
+        bit = require("bit")
+    end
+    
     local byte1, byte2 = string.byte(header, 1, 2)
-    local opcode = byte1 & 0x0F
-    local masked = (byte2 & 0x80) ~= 0
-    local len = byte2 & 0x7F
+    local opcode, masked, len
+    if bit then
+        opcode = bit.band(byte1, 0x0F)
+        masked = bit.band(byte2, 0x80) ~= 0
+        len = bit.band(byte2, 0x7F)
+    else
+        opcode = byte1 % 16
+        masked = (byte2 >= 128)
+        len = byte2 % 128
+    end
     
     -- Read extended length if needed
     if len == 126 then
         local extLen, err = self.ws:receive(2)
         if not extLen then return nil, err end
         if #extLen < 2 then return nil, "Incomplete extended length" end
-        len = (string.byte(extLen, 1) << 8) | string.byte(extLen, 2)
+        local b1, b2 = string.byte(extLen, 1, 2)
+        if bit then
+            len = bit.bor(bit.lshift(b1, 8), b2)
+        else
+            len = b1 * 256 + b2
+        end
     elseif len == 127 then
         return nil, "64-bit length not supported"
     end
@@ -368,7 +439,22 @@ function WebSocketClient:receiveWebSocketFrame()
             local unmasked = ""
             for i = 1, #payload do
                 local maskByte = string.byte(mask, ((i - 1) % 4) + 1)
-                unmasked = unmasked .. string.char(string.byte(payload, i) ~ maskByte)
+                local payloadByte = string.byte(payload, i)
+                local unmaskedByte
+                if bit then
+                    unmaskedByte = bit.bxor(payloadByte, maskByte)
+                else
+                    -- Manual XOR
+                    unmaskedByte = 0
+                    for j = 0, 7 do
+                        local maskBit = math.floor(maskByte / (2^j)) % 2
+                        local payloadBit = math.floor(payloadByte / (2^j)) % 2
+                        if maskBit ~= payloadBit then
+                            unmaskedByte = unmaskedByte + (2^j)
+                        end
+                    end
+                end
+                unmasked = unmasked .. string.char(unmaskedByte)
             end
             payload = unmasked
         end
@@ -440,6 +526,7 @@ function WebSocketClient:poll()
             
             -- Decode and handle message
             if data and #data > 0 then
+                print("WebSocket: Received message: " .. data:sub(1, 100))
                 self:handleMessage(data)
             end
             frameCount = frameCount + 1
@@ -493,17 +580,21 @@ function WebSocketClient:handleMessage(data)
         return
     end
     
+    print("WebSocket: Raw message received: " .. data:sub(1, 200))
+    
     local success, message = pcall(function()
         return self:decodeMessage(data)
     end)
     
     if success and message then
+        print("WebSocket: Parsed message type: " .. (message.type or "nil"))
         -- Convert server message format to game format
         if message.type == "connected" then
             print("WebSocket: Connection confirmed, playerId: " .. (message.playerId or "unknown"))
             -- Store our playerId if we got it
             if message.playerId and not self.playerId then
                 self.playerId = message.playerId
+                print("WebSocket: Set playerId to: " .. self.playerId)
             end
             table.insert(self.messageQueue, {
                 type = "connected",
@@ -511,10 +602,12 @@ function WebSocketClient:handleMessage(data)
             })
         elseif message.type == "player_joined" then
             -- Convert to game format
-            print("WebSocket: Player joined: " .. (message.playerId or "unknown"))
+            print("WebSocket: Player joined: " .. (message.playerId or "unknown") .. ", isHost: " .. tostring(message.isHost or false))
+            -- Don't ignore our own player_joined - we need to know about other players
             table.insert(self.messageQueue, {
                 type = "player_joined",
                 id = message.playerId,
+                playerId = message.playerId,  -- Also include playerId for compatibility
                 x = 400, y = 300  -- Default spawn
             })
         elseif message.type == "player_left" then
@@ -526,13 +619,17 @@ function WebSocketClient:handleMessage(data)
         elseif message.type == "game_message" then
             -- Extract game message data
             -- Server sends: { type: 'game_message', playerId, data: { type: 'player_move', x, y, dir } }
+            print("WebSocket: Game message from: " .. (message.playerId or "unknown"))
             if message.data then
+                print("WebSocket: Message data type: " .. type(message.data))
                 if type(message.data) == "table" then
+                    print("WebSocket: Data table keys: " .. self:tableKeysToString(message.data))
                     if message.data.type == "player_move" then
                         -- Data is in message.data array: [x, y, dir]
                         local x = message.data[1] or message.data.x or 400
                         local y = message.data[2] or message.data.y or 300
                         local dir = message.data[3] or message.data.dir or "down"
+                        print("WebSocket: Player move - " .. message.playerId .. " to (" .. x .. ", " .. y .. ")")
                         table.insert(self.messageQueue, {
                             type = "player_moved",
                             id = message.playerId,
@@ -548,10 +645,15 @@ function WebSocketClient:handleMessage(data)
                             data = message.data
                         })
                     end
+                else
+                    print("WebSocket: Message data is not a table: " .. type(message.data))
                 end
+            else
+                print("WebSocket: Message has no data field")
             end
         else
             -- Pass through other messages
+            print("WebSocket: Unknown message type, passing through: " .. (message.type or "nil"))
             table.insert(self.messageQueue, message)
         end
     else
@@ -560,6 +662,15 @@ function WebSocketClient:handleMessage(data)
             print("WebSocket: Parse error: " .. tostring(message))
         end
     end
+end
+
+-- Helper to debug table keys
+function WebSocketClient:tableKeysToString(tbl)
+    local keys = {}
+    for k, v in pairs(tbl) do
+        table.insert(keys, tostring(k) .. "=" .. tostring(type(v)))
+    end
+    return table.concat(keys, ", ")
 end
 
 -- Manually add a message to the queue (for testing or HTTP polling)
