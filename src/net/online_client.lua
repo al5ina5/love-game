@@ -116,18 +116,9 @@ function OnlineClient:createRoom(isPublic)
 end
 
 function OnlineClient:joinRoom(roomCode)
-    -- Server expects "code" not "roomCode"
-    local success, response = self:httpRequest("POST", self.apiUrl .. "/api/join-room", json.encode({ code = roomCode:upper() }))
-    if not success then 
-        print("OnlineClient: joinRoom failed - success=" .. tostring(success) .. ", response=" .. tostring(response))
-        return false, response or "Unknown error"
-    end
-    if response and response.success == false then
-        print("OnlineClient: joinRoom server error: " .. (response.error or "Unknown error"))
-        return false, response.error or "Unknown error"
-    end
+    local success = self:httpRequest("POST", self.apiUrl .. "/api/join-room", json.encode({ roomCode = roomCode:upper() }))
+    if not success then return false end
     self.roomCode = roomCode:upper()
-    print("OnlineClient: Successfully joined room: " .. self.roomCode)
     return true
 end
 
@@ -139,13 +130,7 @@ end
 
 function OnlineClient:heartbeat()
     if not self.roomCode then return false end
-    -- Server uses /api/keep-alive, not /api/heartbeat, and expects "code" not "roomCode"
-    local success, response = self:httpRequest("POST", self.apiUrl .. "/api/keep-alive", json.encode({ code = self.roomCode }))
-    if not success then
-        print("OnlineClient: heartbeat failed: " .. tostring(response))
-        return false
-    end
-    return true
+    return self:httpRequest("POST", self.apiUrl .. "/api/heartbeat", json.encode({ roomCode = self.roomCode }))
 end
 
 function OnlineClient:disconnect()

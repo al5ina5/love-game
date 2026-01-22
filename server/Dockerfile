@@ -1,10 +1,10 @@
 # Build stage
 FROM node:20-slim AS builder
 WORKDIR /app
-# Copy package files
+# Copy the package files
 COPY package*.json ./
 RUN npm install
-# Copy source
+# Copy the rest of the source
 COPY . .
 RUN npm run build
 

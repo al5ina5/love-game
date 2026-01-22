@@ -1,186 +1,94 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { createServer } from 'http';
 import net from 'net';
-import { KVStore } from './kv';
-import { WebSocketManager } from './websocket';
 
+// --- Configuration ---
+const HTTP_PORT = process.env.PORT || 3000;
+const TCP_PORT = process.env.TCP_PORT || 12346;
+
+// --- Types ---
+interface Room {
+  code: string;
+  hostName: string;
+  isPublic: boolean;
+  players: number;
+  maxPlayers: number;
+  createdAt: number;
+  lastHeartbeat: number;
+  gameStarted: boolean;  // Track if game has begun
+}
+
+interface RoomData {
+  sockets: net.Socket[];
+  gameStarted: boolean;
+}
+
+// --- In-Memory State ---
+const rooms = new Map<string, Room>();
+const roomSockets = new Map<string, RoomData>();
+
+// --- Helper: Generate Room Code ---
+function generateRoomCode(): string {
+  // Generate 6-digit numeric code (100000-999999) for easier gamepad input
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  return code;
+}
+
+// --- HTTP Server (Matchmaker) ---
 const app = express();
-const server = createServer(app);
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Initialize services
-const kv = new KVStore();
-const wsManager = new WebSocketManager(server, kv);
-
-// Generate 6-digit room code
-function generateRoomCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-// REST API Routes
-
-// Create a new room
-app.post('/api/create-room', async (req: Request, res: Response) => {
-  try {
-    const { isPublic = false, hostId } = req.body;
-
-    // Generate unique room code
-    let code: string;
-    let attempts = 0;
-    do {
-      code = generateRoomCode();
-      attempts++;
-      if (attempts > 10) {
-        return res.status(500).json({ error: 'Failed to generate unique room code' });
-      }
-    } while (await kv.getRoom(code) !== null);
-
-    const room = {
-      code,
-      isPublic,
-      hostId: hostId || `host_${Date.now()}`,
-      players: [hostId || `host_${Date.now()}`],
-      createdAt: Date.now(),
-      lastHeartbeat: Date.now(),
-    };
-
-    const success = await kv.setRoom(room);
-    if (!success) {
-      return res.status(500).json({ error: 'Failed to create room' });
-    }
-
-    // Get WebSocket URL
-    const wsUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
-      ? `wss://${process.env.RAILWAY_PUBLIC_DOMAIN}/ws`
-      : `ws://localhost:${process.env.PORT || 3000}/ws`;
-
-    res.json({
-      success: true,
-      roomCode: code,
-      wsUrl: `${wsUrl}?room=${code}&playerId=${room.hostId}&isHost=true`,
-    });
-  } catch (error) {
-    console.error('Error creating room:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+app.post('/api/create-room', (req: Request, res: Response) => {
+  const { isPublic, hostName = 'Host' } = req.body;
+  const code = generateRoomCode();
+  
+  const room: Room = {
+    code,
+    hostName,
+    isPublic: !!isPublic,
+    players: 1,
+    maxPlayers: 2,
+    createdAt: Date.now(),
+    lastHeartbeat: Date.now(),
+    gameStarted: false,
+  };
+  
+  rooms.set(code, room);
+  res.json({ roomCode: code });
+  console.log(`[HTTP] Room ${code} created`);
 });
 
-// Join a room by code
-app.post('/api/join-room', async (req: Request, res: Response) => {
-  try {
-    const { code, playerId } = req.body;
-
-    if (!code) {
-      return res.status(400).json({ error: 'Room code required' });
-    }
-
-    const room = await kv.getRoom(code);
-    if (!room) {
-      return res.status(404).json({ error: 'Room not found' });
-    }
-
-    const newPlayerId = playerId || `player_${Date.now()}`;
-
-    // Add player to room if not already present
-    if (!room.players.includes(newPlayerId)) {
-      room.players.push(newPlayerId);
-      room.lastHeartbeat = Date.now();
-      await kv.setRoom(room);
-    }
-
-    // Get WebSocket URL
-    const wsUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
-      ? `wss://${process.env.RAILWAY_PUBLIC_DOMAIN}/ws`
-      : `ws://localhost:${process.env.PORT || 3000}/ws`;
-
-    res.json({
-      success: true,
-      roomCode: code,
-      wsUrl: `${wsUrl}?room=${code}&playerId=${newPlayerId}&isHost=false`,
-      playerId: newPlayerId,
-    });
-  } catch (error) {
-    console.error('Error joining room:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+app.get('/api/list-rooms', (_req: Request, res: Response) => {
+  const now = Date.now();
+  const publicRooms = Array.from(rooms.values()).filter(r => 
+    r.isPublic && 
+    r.players < r.maxPlayers && 
+    !r.gameStarted &&  // Don't show rooms where game already started
+    (now - r.lastHeartbeat) < 60000 // Only show active rooms
+  );
+  res.json({ rooms: publicRooms });
 });
 
-// List public rooms
-app.get('/api/list-rooms', async (req: Request, res: Response) => {
-  try {
-    const rooms = await kv.listPublicRooms();
-    
-    // Enhance with WebSocket player counts
-    const roomsWithCounts = rooms.map(room => ({
-      code: room.code,
-      playerCount: wsManager.getRoomPlayerCount(room.code) || room.playerCount || 0,
-      maxPlayers: room.maxPlayers || 4,
-      createdAt: room.createdAt,
-    }));
-    
-    res.json({
-      success: true,
-      rooms: roomsWithCounts,
-    });
-  } catch (error) {
-    console.error('Error listing rooms:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+app.post('/api/join-room', (req: Request, res: Response) => {
+  const { roomCode } = req.body;
+  const room = rooms.get(roomCode?.toUpperCase());
+  
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.players >= room.maxPlayers) return res.status(400).json({ error: 'Room full' });
+  if (room.gameStarted) return res.status(400).json({ error: 'Game already in progress' });
+  
+  res.json({ success: true });
 });
 
-// Keep room alive (heartbeat)
-app.post('/api/keep-alive', async (req: Request, res: Response) => {
-  try {
-    const { code } = req.body;
-
-    if (!code) {
-      return res.status(400).json({ error: 'Room code required' });
-    }
-
-    const room = await kv.getRoom(code);
-    if (!room) {
-      return res.status(404).json({ error: 'Room not found' });
-    }
-
+app.post('/api/heartbeat', (req: Request, res: Response) => {
+  const { roomCode } = req.body;
+  const room = rooms.get(roomCode?.toUpperCase());
+  if (room) {
     room.lastHeartbeat = Date.now();
-    await kv.setRoom(room);
-
     res.json({ success: true });
-  } catch (error) {
-    console.error('Error keeping room alive:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Get room status
-app.get('/api/room/:code', async (req: Request, res: Response) => {
-  try {
-    const { code } = req.params;
-    const room = await kv.getRoom(code);
-
-    if (!room) {
-      return res.status(404).json({ error: 'Room not found' });
-    }
-
-    const playerCount = wsManager.getRoomPlayerCount(code);
-
-    res.json({
-      success: true,
-      room: {
-        code: room.code,
-        isPublic: room.isPublic,
-        playerCount,
-        maxPlayers: 4, // Can be configurable
-        createdAt: room.createdAt,
-      },
-    });
-  } catch (error) {
-    console.error('Error getting room status:', error);
-    res.status(500).json({ error: 'Internal server error' });
+  } else {
+    res.status(404).json({ error: 'Room not found' });
   }
 });
 
@@ -189,68 +97,49 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
-// --- TCP Relay Server (for real-time game messages) ---
-// Railway TCP Proxy: Configure in Railway dashboard -> Service -> Networking -> TCP Proxy
-// Railway sets PORT for HTTP. For TCP, use a different port (e.g., 12347) or Railway's TCP proxy internal port.
-// If Railway sets PORT=12346 (TCP proxy), we need to use a different port for HTTP or detect Railway's setup.
-const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
-// Use a different port for TCP relay to avoid conflict with HTTP PORT
-// Railway TCP Proxy forwards to this internal port
-const TCP_PORT = parseInt(process.env.TCP_PORT || (HTTP_PORT === 12346 ? '12347' : '12346'), 10);
-const roomSockets = new Map<string, net.Socket[]>();
+app.listen(HTTP_PORT, () => {
+  console.log(`[HTTP] Matchmaker listening on port ${HTTP_PORT}`);
+});
 
+// --- TCP Server (Real-time Relay) ---
 const tcpServer = net.createServer((socket: net.Socket) => {
   let currentRoomCode: string | null = null;
   let buffer = '';
   let cleanedUp = false;
 
-  // Set keep-alive to prevent connection timeouts
-  socket.setKeepAlive(true, 60000);
-  socket.setNoDelay(true);
-  
-  console.log(`[TCP] New connection from ${socket.remoteAddress}:${socket.remotePort}`);
-
   socket.on('data', (data: Buffer) => {
-    const dataStr = data.toString();
-    console.log(`[TCP] Received data from ${socket.remoteAddress}: "${dataStr.trim()}"`);
-    buffer += dataStr;
+    buffer += data.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine) continue; // Skip empty lines
-      
-      console.log(`[TCP] Processing line: "${trimmedLine}"`);
-      
-      if (trimmedLine.startsWith('JOIN:')) {
-        const code = trimmedLine.split(':')[1].trim().toUpperCase();
-        if (!code) {
-          console.log(`[TCP] Invalid JOIN message: "${trimmedLine}"`);
-          socket.write('ERROR:Invalid room code\n');
+      if (line.startsWith('JOIN:')) {
+        const code = line.split(':')[1].toUpperCase();
+        currentRoomCode = code;
+        
+        const room = rooms.get(code);
+        
+        // Reject if game already started
+        if (room && room.gameStarted) {
+          socket.write('ERROR:Game already in progress\n');
+          socket.end();
           continue;
         }
         
-        currentRoomCode = code;
-        console.log(`[TCP] Player joining room: ${code}`);
-        
-        let sockets = roomSockets.get(code);
-        if (!sockets) {
-          sockets = [socket];
-          roomSockets.set(code, sockets);
+        let roomData = roomSockets.get(code);
+        if (!roomData) {
+          roomData = { sockets: [socket], gameStarted: false };
+          roomSockets.set(code, roomData);
           console.log(`[TCP] Player joined room ${code} (1st player)`);
         } else {
-          if (sockets.length < 2) {
-            sockets.push(socket);
+          if (roomData.sockets.length < 2) {
+            roomData.sockets.push(socket);
+            if (room) room.players = roomData.sockets.length;
             console.log(`[TCP] Player joined room ${code} (2nd player)`);
             
             // Notify both players they are paired
-            sockets.forEach(s => {
-              console.log(`[TCP] Sending PAIRED to player`);
-              s.write('PAIRED\n');
-            });
+            roomData.sockets.forEach(s => s.write('PAIRED\n'));
           } else {
-            console.log(`[TCP] Room ${code} is full`);
             socket.write('ERROR:Room full\n');
             socket.end();
           }
@@ -258,101 +147,65 @@ const tcpServer = net.createServer((socket: net.Socket) => {
         continue;
       }
 
+      // Track game start (countdown message)
+      if (line.includes('|scd|') || line.startsWith('scd|')) {
+        const roomData = roomSockets.get(currentRoomCode || '');
+        const room = rooms.get(currentRoomCode || '');
+        if (roomData) roomData.gameStarted = true;
+        if (room) room.gameStarted = true;
+        console.log(`[TCP] Game started in room ${currentRoomCode}`);
+      }
+
       // Forward data to others in the same room
       if (currentRoomCode) {
-        const sockets = roomSockets.get(currentRoomCode);
-        if (sockets) {
-          console.log(`[TCP] Forwarding message to ${sockets.length - 1} other player(s) in room ${currentRoomCode}`);
-          sockets.forEach(s => {
-            if (s !== socket) {
-              s.write(trimmedLine + '\n');
-            }
+        const roomData = roomSockets.get(currentRoomCode);
+        if (roomData) {
+          roomData.sockets.forEach(s => {
+            if (s !== socket) s.write(line + '\n');
           });
-        } else {
-          console.log(`[TCP] Warning: No sockets found for room ${currentRoomCode}`);
         }
-      } else {
-        console.log(`[TCP] Warning: Received message but no room code set: "${trimmedLine}"`);
       }
     }
   });
 
   const cleanup = () => {
-    if (cleanedUp) return;
+    if (cleanedUp) return;  // Prevent double cleanup
     cleanedUp = true;
     
     if (currentRoomCode) {
-      const sockets = roomSockets.get(currentRoomCode);
-      if (sockets) {
-        const filtered = sockets.filter(s => s !== socket);
-        if (filtered.length === 0) {
+      const roomData = roomSockets.get(currentRoomCode);
+      if (roomData) {
+        roomData.sockets = roomData.sockets.filter(s => s !== socket);
+        const room = rooms.get(currentRoomCode);
+        if (room) room.players = roomData.sockets.length;
+
+        if (roomData.sockets.length === 0) {
+          // No players left - delete the room entirely
           roomSockets.delete(currentRoomCode);
+          rooms.delete(currentRoomCode);
           console.log(`[TCP] Room ${currentRoomCode} deleted (empty)`);
         } else {
-          roomSockets.set(currentRoomCode, filtered);
           // Notify remaining player(s) that opponent left
-          filtered.forEach(s => s.write('OPPONENT_LEFT\n'));
+          roomData.sockets.forEach(s => s.write('OPPONENT_LEFT\n'));
           console.log(`[TCP] Player left room ${currentRoomCode}, notified remaining players`);
+          
+          // If game was in progress, reset game state so host can rematch or continue solo
+          if (roomData.gameStarted) {
+            roomData.gameStarted = false;
+            if (room) room.gameStarted = false;
+          }
         }
       }
     }
   };
 
-  socket.on('close', () => {
-    console.log(`[TCP] Socket closed for room ${currentRoomCode || 'unknown'}`);
-    cleanup();
-  });
-  
+  socket.on('close', cleanup);
   socket.on('error', (err) => {
-    console.log(`[TCP] Socket error for room ${currentRoomCode || 'unknown'}: ${err.message}`);
+    console.log(`[TCP] Socket error: ${err.message}`);
     cleanup();
   });
-  
-  socket.on('timeout', () => {
-    console.log(`[TCP] Socket timeout for room ${currentRoomCode || 'unknown'}`);
-    socket.end();
-  });
-  
-  // Set a longer timeout
-  socket.setTimeout(300000); // 5 minutes
 });
 
-// Start HTTP/WebSocket server FIRST (Railway health checks & create-room use PORT)
-server.on('error', (err: NodeJS.ErrnoException) => {
-  console.error(`[HTTP] Server error: ${err.message}`);
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[HTTP] Port ${HTTP_PORT} is already in use`);
-  }
-  process.exit(1);
-});
-
-server.listen(HTTP_PORT, '0.0.0.0', () => {
-  console.log(`🚀 Boon Snatch Server running on port ${HTTP_PORT}`);
-  console.log(`📡 WebSocket available at ws://localhost:${HTTP_PORT}/ws`);
-
-  if (!process.env.KV_REST_API_TOKEN) {
-    console.warn('⚠️  Warning: KV_REST_API_TOKEN not set');
-  }
-  if (!process.env.KV_REST_API_URL) {
-    console.warn('⚠️  Warning: KV_REST_API_URL not set');
-  }
-
-  // Start TCP relay AFTER HTTP is up. Use different port than HTTP to avoid EADDRINUSE.
-  if (TCP_PORT === HTTP_PORT) {
-    console.warn(`[TCP] Skipping TCP relay: HTTP_PORT (${HTTP_PORT}) equals TCP_PORT (${TCP_PORT}).`);
-    console.warn(`[TCP] Configure Railway: HTTP on port ${HTTP_PORT}, TCP Proxy on a different internal port (e.g., ${HTTP_PORT === 12346 ? '12347' : '12346'}).`);
-  } else {
-    tcpServer.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        console.warn(`[TCP] Port ${TCP_PORT} already in use — relay disabled. HTTP/create-room still work.`);
-      } else {
-        console.warn(`[TCP] Relay error: ${err.message}`);
-      }
-    });
-    tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
-      console.log(`📡 TCP Relay listening on port ${TCP_PORT}`);
-      console.log(`📡 TCP Relay: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}:${TCP_PORT}`);
-      console.log(`📡 Note: Update Railway TCP Proxy to forward to internal port ${TCP_PORT}`);
-    });
-  }
+tcpServer.listen(TCP_PORT, () => {
+  console.log(`[TCP] Relay listening on port ${TCP_PORT}`);
 });
