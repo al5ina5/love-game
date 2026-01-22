@@ -3,9 +3,23 @@ import cors from 'cors';
 import net from 'net';
 
 // --- Configuration ---
-// Railway: HTTP on PORT (8080), TCP on 12346 (Railway TCP proxy forwards to this)
-const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
-const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
+// Railway: HTTP on PORT (should be 8080), TCP on 12346 (Railway TCP proxy forwards to this)
+// If Railway incorrectly sets PORT=12346, use 12346 for TCP and 8080 for HTTP
+const RAILWAY_PORT = parseInt(process.env.PORT || '3000', 10);
+const RAILWAY_TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
+
+let HTTP_PORT = RAILWAY_PORT;
+let TCP_PORT = RAILWAY_TCP_PORT;
+
+// Handle Railway quirk: if PORT is set to TCP proxy port (12346), use it for TCP and default HTTP port for HTTP
+if (RAILWAY_PORT === 12346 && !process.env.TCP_PORT) {
+  HTTP_PORT = 8080;  // Railway HTTP should be on 8080
+  TCP_PORT = 12346;  // Railway TCP proxy forwards to 12346
+  console.log(`[CONFIG] Detected PORT=12346, using HTTP_PORT=${HTTP_PORT}, TCP_PORT=${TCP_PORT}`);
+} else {
+  HTTP_PORT = RAILWAY_PORT;
+  TCP_PORT = RAILWAY_TCP_PORT;
+}
 
 // --- Types ---
 interface Room {
