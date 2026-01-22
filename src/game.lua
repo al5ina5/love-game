@@ -69,11 +69,16 @@ function Game:load()
     -- Discovery
     self.discovery = Discovery:new()
     
-    -- Menu
-    self.menu = Menu:new(self.discovery)
-    self.menu.onHost = function() self:becomeHost() end
-    self.menu.onStopHost = function() self:stopHosting() end
-    self.menu.onJoin = function(ip, port) self:connectToServer(ip, port) end
+    -- Menu (new online system)
+    self.menu = Menu:new()
+    self.menu.onRoomCreated = function(roomCode, wsUrl)
+        print("Room created callback: " .. roomCode)
+        -- TODO: Connect WebSocket and start game
+    end
+    self.menu.onRoomJoined = function(roomCode, wsUrl, playerId)
+        print("Room joined callback: " .. roomCode .. ", player: " .. playerId)
+        -- TODO: Connect WebSocket and start game
+    end
     self.menu.onCancel = function() end
     
     -- Create pixel art floor tiles
@@ -422,17 +427,11 @@ function Game:keypressed(key)
         return
     end
     
-    if key == "m" or key == "tab" then
-        self.menu:show()
-    elseif key == "h" then
-        self:becomeHost()
-    elseif key == "c" then
-        self:connectToServer("localhost", 12345)
-    elseif key == "escape" then
+    if key == "escape" then
         if self.menu:isVisible() then
             self.menu:hide()
         else
-            love.event.quit()
+            self.menu:show()
         end
     end
 end
@@ -465,7 +464,7 @@ function Game:gamepadpressed(button)
         return
     end
     
-    if button == "start" or button == "y" then
+    if button == "start" then
         if self.menu:isVisible() then
             self.menu:hide()
         else

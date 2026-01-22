@@ -1,5 +1,7 @@
-// Cloudflare KV operations
-// Uses REST API since we're not in a Cloudflare Worker
+// Upstash Redis operations
+// Uses @upstash/redis SDK for reliable connection
+
+import { Redis } from '@upstash/redis';
 
 export interface Room {
   code: string;
@@ -11,18 +13,30 @@ export interface Room {
 }
 
 export class KVStore {
-  private apiToken: string;
-  private baseUrl: string;
+  private redis: Redis;
 
   constructor() {
-    this.apiToken = process.env.KV_REST_API_TOKEN || '';
-    // KV_REST_API_URL should be: https://api.cloudflare.com/client/v4/accounts/{account_id}/storage/kv/namespaces/{namespace_id}
-    this.baseUrl = process.env.KV_REST_API_URL || '';
+    // Support both standard Upstash names and legacy KV names
+    const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '';
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '';
     
-    // Ensure base URL doesn't end with /
-    if (this.baseUrl.endsWith('/')) {
-      this.baseUrl = this.baseUrl.slice(0, -1);
+    console.log('KVStore (Upstash) initializing:', {
+      hasToken: !!token,
+      tokenLength: token.length,
+      hasUrl: !!url,
+      urlPreview: url ? url.substring(0, 50) + '...' : 'missing',
+      usingStandardVars: !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+    });
+    
+    if (!url || !token) {
+      console.error('Missing Upstash credentials! UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_URL and KV_REST_API_TOKEN) required');
     }
+    
+    // Initialize Upstash Redis client
+    this.redis = new Redis({
+      url: url,
+      token: token,
+    });
   }
 
   private getKey(roomCode: string): string {
@@ -31,61 +45,46 @@ export class KVStore {
 
   async getRoom(code: string): Promise<Room | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/values/${this.getKey(code)}`, {
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error(`KV GET failed: ${response.statusText}`);
-      }
-
-      const text = await response.text();
-      if (!text) return null;
-      
-      return JSON.parse(text) as Room;
+      const key = this.getKey(code);
+      const value = await this.redis.get<Room>(key);
+      return value;
     } catch (error) {
-      console.error('Error getting room from KV:', error);
+      console.error('Error getting room from Upstash:', error);
       return null;
     }
   }
 
   async setRoom(room: Room): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/values/${this.getKey(room.code)}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'text/plain',
-        },
-        body: JSON.stringify(room),
-      });
-
-      if (!response.ok) {
-        throw new Error(`KV PUT failed: ${response.statusText}`);
+      const key = this.getKey(room.code);
+      console.log('Upstash SET request for room:', room.code);
+      
+      const result = await this.redis.set(key, room);
+      
+      if (result === "OK") {
+        console.log('Upstash SET successful for room:', room.code);
+        return true;
+      } else {
+        console.error('Upstash SET unexpected response:', result);
+        return false;
       }
-
-      return true;
     } catch (error) {
-      console.error('Error setting room in KV:', error);
+      console.error('Error setting room in Upstash:', error);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message, error.stack);
+      }
       return false;
     }
   }
 
   async deleteRoom(code: string): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/values/${this.getKey(code)}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
-      });
-
-      return response.ok;
+      const key = this.getKey(code);
+      const result = await this.redis.del(key);
+      // Returns number of keys deleted (1 if found, 0 if not)
+      return result === 1;
     } catch (error) {
-      console.error('Error deleting room from KV:', error);
+      console.error('Error deleting room from Upstash:', error);
       return false;
     }
   }

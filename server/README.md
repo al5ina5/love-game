@@ -10,9 +10,9 @@ npm install
 ```
 
 2. Set environment variables (Railway will set these automatically):
-- `KV_REST_API_TOKEN` - Cloudflare KV REST API token
-- `KV_REST_API_URL` - Cloudflare KV REST API URL
-- `PORT` - Server port (Railway sets this)
+- `UPSTASH_REDIS_REST_URL` - Upstash Redis REST API URL (or `KV_REST_API_URL` for legacy)
+- `UPSTASH_REDIS_REST_TOKEN` - Upstash Redis REST API token (or `KV_REST_API_TOKEN` for legacy)
+- `PORT` - Server port (Railway sets this, default: 8080)
 - `RAILWAY_PUBLIC_DOMAIN` - Railway public domain (optional, for WebSocket URL)
 
 ## Development
@@ -34,9 +34,10 @@ npm start
 2. Select the `server/` directory as the root
 3. Railway will auto-detect Node.js and run `npm install && npm run build && npm start`
 4. Add environment variables in Railway dashboard:
-   - `KV_REST_API_TOKEN`
-   - `KV_REST_API_URL`
-   - `RAILWAY_PUBLIC_DOMAIN` (optional)
+   - `UPSTASH_REDIS_REST_URL` (e.g., `https://fresh-mongoose-45397.upstash.io`)
+   - `UPSTASH_REDIS_REST_TOKEN` (your Upstash REST API token)
+   - `PORT=8080` (if not auto-set)
+   - `RAILWAY_PUBLIC_DOMAIN` (optional, for WebSocket URL)
 
 ## API Endpoints
 
