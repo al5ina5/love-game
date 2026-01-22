@@ -183,7 +183,7 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Boon Snatch Server running on port ${PORT}`);
   console.log(`📡 WebSocket available at ws://localhost:${PORT}/ws`);
   
