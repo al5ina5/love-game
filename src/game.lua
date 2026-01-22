@@ -71,13 +71,46 @@ function Game:load()
     
     -- Menu (new online system)
     self.menu = Menu:new()
+    local WebSocketClient = require("src.net.websocket_client")
     self.menu.onRoomCreated = function(roomCode, wsUrl)
         print("Room created callback: " .. roomCode)
-        -- TODO: Connect WebSocket and start game
+        -- Connect WebSocket and start game
+        if self.network then
+            self.network:disconnect()
+        end
+        
+        self.network = WebSocketClient:new()
+        local success, err = self.network:connect(roomCode, nil, true, wsUrl)
+        if success then
+            self.isHost = true
+            self.playerId = "host"
+            self.network.playerId = "host"
+            -- Hide menu and start playing
+            self.menu:hide()
+            print("Host connected, waiting for players...")
+        else
+            print("Failed to connect: " .. (err or "Unknown error"))
+        end
     end
     self.menu.onRoomJoined = function(roomCode, wsUrl, playerId)
         print("Room joined callback: " .. roomCode .. ", player: " .. playerId)
-        -- TODO: Connect WebSocket and start game
+        -- Connect WebSocket and start game
+        if self.network then
+            self.network:disconnect()
+        end
+        
+        self.network = WebSocketClient:new()
+        local success, err = self.network:connect(roomCode, playerId, false, wsUrl)
+        if success then
+            self.isHost = false
+            self.playerId = playerId
+            self.network.playerId = playerId
+            -- Hide menu and start playing
+            self.menu:hide()
+            print("Client connected, playerId: " .. playerId)
+        else
+            print("Failed to connect: " .. (err or "Unknown error"))
+        end
     end
     self.menu.onCancel = function() end
     
@@ -279,8 +312,14 @@ function Game:update(dt)
     
     -- Network updates
     if self.network then
-        self.network:sendPosition(self.player.x, self.player.y, self.player.direction)
+        -- Send position updates
+        if self.network.sendPosition then
+            self.network:sendPosition(self.player.x, self.player.y, self.player.direction)
+        elseif self.network.sendMessage then
+            self.network:sendMessage("player_move", self.player.x, self.player.y, self.player.direction)
+        end
         
+        -- Poll for messages
         local messages = self.network:poll()
         for _, msg in ipairs(messages) do
             self:handleNetworkMessage(msg)
@@ -308,19 +347,43 @@ end
 function Game:handleNetworkMessage(msg)
     if msg.type == "player_joined" then
         print("Player joined: " .. msg.id)
-        self.remotePlayers[msg.id] = RemotePlayer:new(msg.x, msg.y)
+        -- Don't create remote player for ourselves
+        if msg.id ~= self.playerId then
+            self.remotePlayers[msg.id] = RemotePlayer:new(msg.x or 400, msg.y or 300)
+            -- If we're the host and someone joined, hide the menu if it's still showing waiting
+            if self.isHost and self.menu:isVisible() and self.menu.state == Menu.STATE.WAITING then
+                self.menu:hide()
+                print("Player joined! Starting game...")
+            end
+        end
         
     elseif msg.type == "player_moved" then
+        -- Don't process our own movement
+        if msg.id == self.playerId then return end
+        
         local remote = self.remotePlayers[msg.id]
         if remote then
             remote:setTargetPosition(msg.x, msg.y, msg.dir)
         else
-            self.remotePlayers[msg.id] = RemotePlayer:new(msg.x, msg.y)
+            -- Create remote player if we don't have them yet
+            self.remotePlayers[msg.id] = RemotePlayer:new(msg.x or 400, msg.y or 300)
+            remote = self.remotePlayers[msg.id]
+            if remote then
+                remote:setTargetPosition(msg.x, msg.y, msg.dir)
+            end
         end
         
     elseif msg.type == "player_left" then
         print("Player left: " .. msg.id)
         self.remotePlayers[msg.id] = nil
+    elseif msg.type == "connected" then
+        print("WebSocket connected: " .. (msg.playerId or "unknown"))
+        if msg.playerId then
+            self.playerId = msg.playerId
+            if self.network then
+                self.network.playerId = msg.playerId
+            end
+        end
     end
 end
 

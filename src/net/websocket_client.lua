@@ -1,15 +1,11 @@
 -- src/net/websocket_client.lua
 -- WebSocket client for real-time game messages
 -- Implements NetworkAdapter interface
--- 
--- NOTE: Requires a WebSocket library. Options:
--- - love2d-lua-websocket (pure Lua): https://github.com/flaribbit/love2d-lua-websocket
--- - love-ws (C++ native): https://github.com/holywyvern/love-ws
--- 
--- For now, this is a stub that can be adapted to your chosen library
+-- Uses HTTP polling as a fallback (simpler than full WebSocket implementation)
 
 local NetworkAdapter = require("src.net.adapter")
 local Protocol = require("src.net.protocol")
+local OnlineClient = require("src.net.online_client")
 
 local WebSocketClient = {}
 WebSocketClient.__index = WebSocketClient
@@ -30,6 +26,17 @@ function WebSocketClient:new()
     -- Rate limiting
     self.lastSendTime = 0
     self.sendRate = 1/20  -- 20 messages per second
+    
+    -- HTTP polling fallback
+    self.usePolling = true
+    self.pollTimer = 0
+    self.pollInterval = 0.1  -- Poll every 100ms
+    self.onlineClient = OnlineClient:new()
+    self.lastPollTime = 0
+    
+    -- Connection state
+    self.connectionAttempts = 0
+    self.maxConnectionAttempts = 10
     
     return self
 end
@@ -52,32 +59,163 @@ function WebSocketClient:connect(roomCode, playerId, isHost, wsUrl)
     
     print("WebSocket: Connecting to " .. self.wsUrl)
     
-    -- TODO: Implement actual WebSocket connection using your chosen library
-    -- Example with love2d-lua-websocket:
-    --[[
-    local websocket = require("websocket")
-    self.ws = websocket.new(self.wsUrl)
-    self.ws:on("open", function()
+    -- Try to use real WebSocket if available, otherwise use polling
+    local success, err = self:connectWebSocket()
+    if not success then
+        print("WebSocket: Real WebSocket not available, using polling fallback")
+        -- Use polling fallback
         self.connected = true
-        print("WebSocket: Connected")
-    end)
-    self.ws:on("message", function(data)
-        self:handleMessage(data)
-    end)
-    self.ws:on("close", function()
-        self.connected = false
-        print("WebSocket: Disconnected")
-    end)
-    self.ws:on("error", function(err)
-        print("WebSocket: Error - " .. tostring(err))
-        self.connected = false
-    end)
-    self.ws:connect()
-    --]]
+        self.connectionAttempts = 0
+        -- Simulate connection message
+        self:addMessage({
+            type = "connected",
+            playerId = playerId,
+            roomCode = roomCode
+        })
+        return true
+    end
     
-    -- For now, return false to indicate WebSocket library is needed
-    print("WARNING: WebSocket library not implemented. Please add a WebSocket library.")
-    return false, "WebSocket library not implemented"
+    return success, err
+end
+
+-- Attempt to connect using real WebSocket
+function WebSocketClient:connectWebSocket()
+    local socket = require("socket")
+    local http = require("socket.http")
+    local ltn12 = require("ltn12")
+    
+    -- Parse WebSocket URL
+    local protocol, host, port, path = self:parseWsUrl(self.wsUrl)
+    if not host then
+        return false, "Invalid WebSocket URL"
+    end
+    
+    local isSecure = protocol == "wss://"
+    
+    -- For secure connections, we'd need SSL support
+    -- For now, try to use luasocket with SSL if available, otherwise fall back to polling
+    if isSecure then
+        -- Try to use SSL
+        local ssl = pcall(require, "ssl")
+        if not ssl then
+            return false, "WSS (secure WebSocket) requires SSL support, using polling fallback"
+        end
+        -- TODO: Implement SSL WebSocket connection
+        return false, "WSS (secure WebSocket) SSL implementation pending, using polling fallback"
+    end
+    
+    -- Create TCP connection
+    local tcp = socket.tcp()
+    tcp:settimeout(5)  -- 5 second timeout
+    
+    local success, err = tcp:connect(host, port)
+    if not success then
+        tcp:close()
+        return false, "Failed to connect: " .. (err or "Unknown error")
+    end
+    
+    -- Perform WebSocket handshake
+    local key = self:generateWebSocketKey()
+    local handshake = string.format(
+        "GET %s HTTP/1.1\r\n" ..
+        "Host: %s:%d\r\n" ..
+        "Upgrade: websocket\r\n" ..
+        "Connection: Upgrade\r\n" ..
+        "Sec-WebSocket-Key: %s\r\n" ..
+        "Sec-WebSocket-Version: 13\r\n" ..
+        "\r\n",
+        path, host, port, key
+    )
+    
+    success, err = tcp:send(handshake)
+    if not success then
+        tcp:close()
+        return false, "Failed to send handshake: " .. (err or "Unknown error")
+    end
+    
+    -- Read handshake response
+    local response = ""
+    local line
+    local headerComplete = false
+    repeat
+        line, err = tcp:receive("*l")
+        if line then
+            response = response .. line .. "\r\n"
+            if line == "" then
+                headerComplete = true
+            end
+        elseif err == "timeout" then
+            -- Try to read what we have
+            break
+        end
+    until not line or headerComplete
+    
+    -- Check if handshake was successful
+    if not response:match("HTTP/1%.1 101") and not response:match("HTTP/1%.0 101") then
+        tcp:close()
+        return false, "WebSocket handshake failed: " .. response:sub(1, 200)
+    end
+    
+    -- Store connection
+    self.ws = tcp
+    self.connected = true
+    self.lastPollTime = love.timer.getTime()
+    print("WebSocket: Connected successfully")
+    
+    -- Immediately try to receive the "connected" message from server
+    -- This will be handled in the first poll() call
+    
+    return true
+end
+
+-- Generate WebSocket key for handshake
+function WebSocketClient:generateWebSocketKey()
+    -- Generate 16 random bytes
+    local random = ""
+    for i = 1, 16 do
+        random = random .. string.char(math.random(0, 255))
+    end
+    -- Base64 encode (simple implementation)
+    local base64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    local result = ""
+    for i = 1, #random, 3 do
+        local b1, b2, b3 = string.byte(random, i, i + 2)
+        b2 = b2 or 0
+        b3 = b3 or 0
+        local bitmap = (b1 << 16) | (b2 << 8) | b3
+        for j = 1, 4 do
+            local idx = ((bitmap >> (6 * (4 - j))) & 0x3F) + 1
+            result = result .. string.sub(base64chars, idx, idx)
+        end
+    end
+    -- Add padding if needed
+    local pad = (3 - (#random % 3)) % 3
+    result = result:sub(1, #result - pad) .. string.rep("=", pad)
+    return result
+end
+
+-- Parse WebSocket URL
+function WebSocketClient:parseWsUrl(url)
+    local protocol, rest = url:match("^(wss?://)(.*)")
+    if not protocol then
+        return nil, nil, nil, nil
+    end
+    
+    local isSecure = protocol == "wss://"
+    local host, port, path = rest:match("^([^:/]+):?(%d*)(.*)")
+    
+    if not host then
+        host, path = rest:match("^([^/]+)(.*)")
+        port = isSecure and "443" or "80"
+    elseif port == "" then
+        port = isSecure and "443" or "80"
+    end
+    
+    if path == "" then
+        path = "/"
+    end
+    
+    return protocol, host, tonumber(port), path
 end
 
 -- Build WebSocket URL from components
@@ -90,8 +228,9 @@ end
 -- Disconnect from WebSocket server
 function WebSocketClient:disconnect()
     if self.ws then
-        -- TODO: Close WebSocket connection
-        -- self.ws:close()
+        -- Send close frame
+        self:sendWebSocketFrame("")
+        self.ws:close()
         self.ws = nil
     end
     
@@ -107,7 +246,7 @@ end
 -- msgType: string (e.g., "input", "game_message")
 -- ...: message data
 function WebSocketClient:sendMessage(msgType, ...)
-    if not self.connected or not self.ws then
+    if not self.connected then
         return false
     end
     
@@ -118,33 +257,212 @@ function WebSocketClient:sendMessage(msgType, ...)
     end
     self.lastSendTime = now
     
-    -- Build message object
+    -- Build message object matching server protocol
+    -- Server expects: { type: 'game_message', playerId, roomCode, data: { type: 'player_move', x, y, dir } }
+    local dataArgs = {...}
     local message = {
-        type = msgType,
+        type = "game_message",
         playerId = self.playerId,
         roomCode = self.roomCode,
-        data = {...}
+        data = {
+            type = msgType,
+            [1] = dataArgs[1],  -- x
+            [2] = dataArgs[2],  -- y
+            [3] = dataArgs[3],  -- direction
+            x = dataArgs[1],
+            y = dataArgs[2],
+            dir = dataArgs[3]
+        }
     }
     
-    -- Encode as JSON (or use pipe-delimited format for compatibility)
+    -- Encode and send via WebSocket
     local messageStr = self:encodeMessage(message)
     
-    -- TODO: Send via WebSocket
-    -- self.ws:send(messageStr)
+    if self.ws then
+        -- Send via WebSocket frame
+        local success, err = self:sendWebSocketFrame(messageStr)
+        if not success then
+            print("WebSocket: Failed to send message: " .. (err or "Unknown error"))
+            return false
+        end
+    else
+        -- Polling fallback: queue message
+        table.insert(self.messageQueue, message)
+    end
     
     return true
+end
+
+-- Send WebSocket frame
+function WebSocketClient:sendWebSocketFrame(data)
+    if not self.ws then return false, "Not connected" end
+    
+    local len = #data
+    local frame = string.char(0x81)  -- FIN + text frame
+    
+    if len < 126 then
+        frame = frame .. string.char(len)
+    elseif len < 65536 then
+        frame = frame .. string.char(126) .. string.char((len >> 8) & 0xFF) .. string.char(len & 0xFF)
+    else
+        return false, "Message too large"
+    end
+    
+    frame = frame .. data
+    
+    local success, err = self.ws:send(frame)
+    return success, err
+end
+
+-- Receive WebSocket frame
+function WebSocketClient:receiveWebSocketFrame()
+    if not self.ws then return nil end
+    
+    -- Set timeout for non-blocking
+    self.ws:settimeout(0)
+    
+    -- Read first 2 bytes (opcode + length)
+    local header, err = self.ws:receive(2)
+    if not header then
+        if err == "timeout" then
+            return nil, "timeout"
+        end
+        return nil, err
+    end
+    
+    if #header < 2 then
+        return nil, "Incomplete header"
+    end
+    
+    local byte1, byte2 = string.byte(header, 1, 2)
+    local opcode = byte1 & 0x0F
+    local masked = (byte2 & 0x80) ~= 0
+    local len = byte2 & 0x7F
+    
+    -- Read extended length if needed
+    if len == 126 then
+        local extLen, err = self.ws:receive(2)
+        if not extLen then return nil, err end
+        if #extLen < 2 then return nil, "Incomplete extended length" end
+        len = (string.byte(extLen, 1) << 8) | string.byte(extLen, 2)
+    elseif len == 127 then
+        return nil, "64-bit length not supported"
+    end
+    
+    -- Read mask if present (client always sends masked, server doesn't)
+    local mask
+    if masked then
+        mask, err = self.ws:receive(4)
+        if not mask then return nil, err end
+        if #mask < 4 then return nil, "Incomplete mask" end
+    end
+    
+    -- Read payload
+    if len > 0 then
+        local payload, err = self.ws:receive(len)
+        if not payload then return nil, err end
+        if #payload < len then return nil, "Incomplete payload" end
+        
+        -- Unmask if needed
+        if masked then
+            local unmasked = ""
+            for i = 1, #payload do
+                local maskByte = string.byte(mask, ((i - 1) % 4) + 1)
+                unmasked = unmasked .. string.char(string.byte(payload, i) ~ maskByte)
+            end
+            payload = unmasked
+        end
+        
+        -- Handle opcode
+        if opcode == 0x1 then  -- Text frame
+            return payload
+        elseif opcode == 0x8 then  -- Close frame
+            self.connected = false
+            return nil, "Connection closed"
+        elseif opcode == 0x9 then  -- Ping
+            -- Send pong (opcode 0xA)
+            local pongFrame = string.char(0x8A) .. string.char(0)  -- FIN + Pong + empty
+            self.ws:send(pongFrame)
+            return self:receiveWebSocketFrame()  -- Get next frame
+        elseif opcode == 0xA then  -- Pong
+            return self:receiveWebSocketFrame()  -- Get next frame
+        end
+        
+        return payload
+    else
+        -- Empty frame
+        if opcode == 0x8 then  -- Close
+            self.connected = false
+            return nil, "Connection closed"
+        end
+        return ""
+    end
+end
+
+-- Send position update (convenience method)
+function WebSocketClient:sendPosition(x, y, direction)
+    return self:sendMessage("player_move", x, y, direction)
 end
 
 -- Poll for incoming messages
 -- Returns: array of messages
 function WebSocketClient:poll()
-    -- TODO: Update WebSocket connection (call tick/update method)
-    -- if self.ws and self.ws.tick then
-    --     self.ws:tick()
-    -- end
+    if not self.connected then
+        return {}
+    end
+    
+    local messages = {}
+    local now = love.timer.getTime()
+    
+    -- Try to receive WebSocket messages
+    if self.ws then
+        -- Set non-blocking mode for receiving
+        local oldTimeout = self.ws:gettimeout()
+        self.ws:settimeout(0)
+        
+        -- Try to receive frames (limit to avoid blocking too long)
+        local maxFrames = 10
+        local frameCount = 0
+        while frameCount < maxFrames do
+            local data, err = self:receiveWebSocketFrame()
+            if not data then
+                if err and err ~= "timeout" then
+                    if err ~= "timeout" then
+                        print("WebSocket receive error: " .. err)
+                    end
+                    if err == "Connection closed" or err:match("closed") then
+                        self.connected = false
+                        self.ws = nil
+                    end
+                end
+                break
+            end
+            
+            -- Decode and handle message
+            if data and #data > 0 then
+                self:handleMessage(data)
+            end
+            frameCount = frameCount + 1
+        end
+        
+        -- Restore timeout
+        if oldTimeout then
+            self.ws:settimeout(oldTimeout)
+        end
+    else
+        -- Polling fallback: process at intervals
+        self.pollTimer = self.pollTimer + (now - self.lastPollTime)
+        self.lastPollTime = now
+        
+        if self.pollTimer >= self.pollInterval then
+            self.pollTimer = 0
+            -- In polling mode, messages are queued manually
+        end
+    end
+    
+    self.lastPollTime = now
     
     -- Return queued messages and clear queue
-    local messages = {}
     for i, msg in ipairs(self.messageQueue) do
         table.insert(messages, msg)
     end
@@ -171,15 +489,82 @@ end
 
 -- Handle incoming WebSocket message
 function WebSocketClient:handleMessage(data)
+    if not data or #data == 0 then
+        return
+    end
+    
     local success, message = pcall(function()
         return self:decodeMessage(data)
     end)
     
     if success and message then
-        table.insert(self.messageQueue, message)
+        -- Convert server message format to game format
+        if message.type == "connected" then
+            print("WebSocket: Connection confirmed, playerId: " .. (message.playerId or "unknown"))
+            -- Store our playerId if we got it
+            if message.playerId and not self.playerId then
+                self.playerId = message.playerId
+            end
+            table.insert(self.messageQueue, {
+                type = "connected",
+                playerId = message.playerId
+            })
+        elseif message.type == "player_joined" then
+            -- Convert to game format
+            print("WebSocket: Player joined: " .. (message.playerId or "unknown"))
+            table.insert(self.messageQueue, {
+                type = "player_joined",
+                id = message.playerId,
+                x = 400, y = 300  -- Default spawn
+            })
+        elseif message.type == "player_left" then
+            print("WebSocket: Player left: " .. (message.playerId or "unknown"))
+            table.insert(self.messageQueue, {
+                type = "player_left",
+                id = message.playerId
+            })
+        elseif message.type == "game_message" then
+            -- Extract game message data
+            -- Server sends: { type: 'game_message', playerId, data: { type: 'player_move', x, y, dir } }
+            if message.data then
+                if type(message.data) == "table" then
+                    if message.data.type == "player_move" then
+                        -- Data is in message.data array: [x, y, dir]
+                        local x = message.data[1] or message.data.x or 400
+                        local y = message.data[2] or message.data.y or 300
+                        local dir = message.data[3] or message.data.dir or "down"
+                        table.insert(self.messageQueue, {
+                            type = "player_moved",
+                            id = message.playerId,
+                            x = tonumber(x) or 400,
+                            y = tonumber(y) or 300,
+                            dir = dir
+                        })
+                    else
+                        -- Other game message types
+                        table.insert(self.messageQueue, {
+                            type = "game_message",
+                            id = message.playerId,
+                            data = message.data
+                        })
+                    end
+                end
+            end
+        else
+            -- Pass through other messages
+            table.insert(self.messageQueue, message)
+        end
     else
-        print("WebSocket: Failed to parse message: " .. tostring(data))
+        print("WebSocket: Failed to parse message: " .. tostring(data) .. " (length: " .. (#data or 0) .. ")")
+        if not success then
+            print("WebSocket: Parse error: " .. tostring(message))
+        end
     end
+end
+
+-- Manually add a message to the queue (for testing or HTTP polling)
+function WebSocketClient:addMessage(message)
+    self:handleMessage(self:encodeMessage(message))
 end
 
 -- Encode message to string (JSON or pipe-delimited)

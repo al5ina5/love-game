@@ -114,10 +114,25 @@ export class WebSocketManager {
       roomClients.delete(clientId);
       if (roomClients.size === 0) {
         this.rooms.delete(connection.roomCode);
+        // Clean up empty room from KV store
+        this.cleanupEmptyRoom(connection.roomCode);
       }
     }
 
     this.clients.delete(clientId);
+  }
+
+  private async cleanupEmptyRoom(roomCode: string) {
+    try {
+      const room = await this.kv.getRoom(roomCode);
+      if (room) {
+        // Delete room from KV store if it has no players
+        await this.kv.deleteRoom(roomCode);
+        console.log(`Cleaned up empty room: ${roomCode}`);
+      }
+    } catch (error) {
+      console.error(`Error cleaning up room ${roomCode}:`, error);
+    }
   }
 
   private broadcastToRoom(roomCode: string, message: any, excludeClientId?: string) {
