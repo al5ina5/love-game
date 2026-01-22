@@ -14,6 +14,8 @@ local Discovery = require('src.net.discovery')
 local Menu = require('src.ui.menu')
 local Dialogue = require('src.ui.dialogue')
 local Audio = require('src.systems.audio')
+local ConnectionManager = require('src.game.connection_manager')
+local NetworkAdapter = require('src.net.network_adapter')
 
 -- World size (large plaza)
 local WORLD_W, WORLD_H = 800, 600
@@ -31,6 +33,8 @@ local Game = {
     discovery = nil,
     menu = nil,
     floorCanvas = nil,
+    connectionManager = nil,
+    playerId = nil,
 }
 
 function Game:load()
@@ -66,55 +70,29 @@ function Game:load()
     self.remotePlayers = {}
     self.playerId = nil
     
+    -- Connection Manager
+    self.connectionManager = ConnectionManager.create()
+    
     -- Discovery
     self.discovery = Discovery:new()
     
     -- Menu (new online system)
     self.menu = Menu:new()
-    local WebSocketClient = require("src.net.websocket_client")
     self.menu.onRoomCreated = function(roomCode, wsUrl)
-        print("Room created callback: " .. roomCode)
-        -- Connect WebSocket but keep menu in waiting state
-        if self.network then
-            self.network:disconnect()
-        end
-        
-        self.network = WebSocketClient:new()
-        local success, err = self.network:connect(roomCode, nil, true, wsUrl)
-        if success then
-            self.isHost = true
-            self.playerId = "host"
-            self.network.playerId = "host"
-            -- Keep menu visible in WAITING state - don't hide yet
-            -- Menu will hide when a player joins (handled in handleNetworkMessage)
-            print("Host connected, waiting for players...")
-        else
-            print("Failed to connect: " .. (err or "Unknown error"))
-            -- Return to create game state on error
-            self.menu.state = Menu.STATE.CREATE_GAME
-        end
+        print("Room created callback: " .. (roomCode or "nil"))
+        -- Get isPublic from menu state
+        local isPublic = self.menu.isPublic or false
+        ConnectionManager.hostOnline(isPublic, self)
     end
     self.menu.onRoomJoined = function(roomCode, wsUrl, playerId)
-        print("Room joined callback: " .. roomCode .. ", player: " .. playerId)
-        -- Connect WebSocket and start game
-        if self.network then
-            self.network:disconnect()
-        end
-        
-        self.network = WebSocketClient:new()
-        local success, err = self.network:connect(roomCode, playerId, false, wsUrl)
-        if success then
-            self.isHost = false
-            self.playerId = playerId
-            self.network.playerId = playerId
-            -- Hide menu and start playing
-            self.menu:hide()
-            print("Client connected, playerId: " .. playerId)
-        else
-            print("Failed to connect: " .. (err or "Unknown error"))
+        print("Room joined callback: " .. (roomCode or "nil"))
+        if roomCode then
+            ConnectionManager.joinOnline(roomCode, self)
         end
     end
-    self.menu.onCancel = function() end
+    self.menu.onCancel = function() 
+        ConnectionManager.returnToMainMenu(self)
+    end
     
     -- Create pixel art floor tiles
     self:createFloorTiles()
@@ -285,9 +263,12 @@ function Game:update(dt)
     -- Discovery always updates
     self.discovery:update(dt)
     
+    -- Connection Manager updates
+    ConnectionManager.update(dt, self)
+    
     -- Sync playerId from network
     if self.network and not self.playerId then
-        self.playerId = self.network.playerId
+        self.playerId = self.network:getPlayerId()
     end
     
     -- Menu
@@ -324,8 +305,6 @@ function Game:update(dt)
         -- Send position updates
         if self.network.sendPosition then
             self.network:sendPosition(self.player.x, self.player.y, self.player.direction)
-        elseif self.network.sendMessage then
-            self.network:sendMessage("player_move", self.player.x, self.player.y, self.player.direction)
         end
         
         -- Poll for messages
@@ -583,51 +562,19 @@ function Game:gamepadpressed(button)
 end
 
 function Game:becomeHost()
-    if self.network then
-        self.network:disconnect()
-    end
-    
-    self.remotePlayers = {}
-    self.isHost = true
-    self.network = Server:new(12345)
-    
-    self.discovery:startAdvertising("Walking Together", 12345, 4)
-    print("Hosting on port 12345!")
+    ConnectionManager.becomeHost(self)
 end
 
 function Game:stopHosting()
-    if not self.isHost then return end
-    
-    if self.network then
-        self.network:disconnect()
-        self.network = nil
-    end
-    
-    self.discovery:stopAdvertising()
-    self.isHost = false
-    self.remotePlayers = {}
+    ConnectionManager.stopHosting(self)
 end
 
 function Game:connectToServer(address, port)
-    if self.isHost then return end
-    
-    if self.network then
-        self.network:disconnect()
-    end
-    
-    self.remotePlayers = {}
-    self.discovery:stopAdvertising()
-    
-    self.network = Client:new()
-    self.network:connect(address or "localhost", port or 12345)
-    
-    print("Connecting to " .. (address or "localhost") .. ":" .. (port or 12345))
+    ConnectionManager.connectToServer(address, port, self)
 end
 
 function Game:quit()
-    if self.network then
-        self.network:disconnect()
-    end
+    ConnectionManager.returnToMainMenu(self)
     if self.discovery then
         self.discovery:close()
     end

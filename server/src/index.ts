@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
+import net from 'net';
 import { KVStore } from './kv';
 import { WebSocketManager } from './websocket';
 
@@ -188,7 +189,90 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
-// Start server
+// --- TCP Relay Server (for real-time game messages) ---
+const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
+const roomSockets = new Map<string, net.Socket[]>();
+
+const tcpServer = net.createServer((socket: net.Socket) => {
+  let currentRoomCode: string | null = null;
+  let buffer = '';
+  let cleanedUp = false;
+
+  socket.on('data', (data: Buffer) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('JOIN:')) {
+        const code = line.split(':')[1].toUpperCase();
+        currentRoomCode = code;
+        
+        let sockets = roomSockets.get(code);
+        if (!sockets) {
+          sockets = [socket];
+          roomSockets.set(code, sockets);
+          console.log(`[TCP] Player joined room ${code} (1st player)`);
+        } else {
+          if (sockets.length < 2) {
+            sockets.push(socket);
+            console.log(`[TCP] Player joined room ${code} (2nd player)`);
+            
+            // Notify both players they are paired
+            sockets.forEach(s => s.write('PAIRED\n'));
+          } else {
+            socket.write('ERROR:Room full\n');
+            socket.end();
+          }
+        }
+        continue;
+      }
+
+      // Forward data to others in the same room
+      if (currentRoomCode) {
+        const sockets = roomSockets.get(currentRoomCode);
+        if (sockets) {
+          sockets.forEach(s => {
+            if (s !== socket) s.write(line + '\n');
+          });
+        }
+      }
+    }
+  });
+
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    
+    if (currentRoomCode) {
+      const sockets = roomSockets.get(currentRoomCode);
+      if (sockets) {
+        const filtered = sockets.filter(s => s !== socket);
+        if (filtered.length === 0) {
+          roomSockets.delete(currentRoomCode);
+          console.log(`[TCP] Room ${currentRoomCode} deleted (empty)`);
+        } else {
+          roomSockets.set(currentRoomCode, filtered);
+          // Notify remaining player(s) that opponent left
+          filtered.forEach(s => s.write('OPPONENT_LEFT\n'));
+          console.log(`[TCP] Player left room ${currentRoomCode}, notified remaining players`);
+        }
+      }
+    }
+  };
+
+  socket.on('close', cleanup);
+  socket.on('error', (err) => {
+    console.log(`[TCP] Socket error: ${err.message}`);
+    cleanup();
+  });
+});
+
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
+  console.log(`📡 TCP Relay listening on port ${TCP_PORT}`);
+});
+
+// Start HTTP/WebSocket server
 const PORT = parseInt(process.env.PORT || '3000', 10);
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Boon Snatch Server running on port ${PORT}`);

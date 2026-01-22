@@ -3,8 +3,6 @@
 -- ESC/START to open, not open by default
 -- Uses 04B_30__.TTF font and standardized design
 
-local OnlineClient = require("src.net.online_client")
-
 local Menu = {}
 Menu.__index = Menu
 
@@ -36,8 +34,9 @@ function Menu:new()
     -- Start HIDDEN (state = nil means not visible)
     self.state = nil
     
-    -- Online client for REST API
-    self.onlineClient = OnlineClient:new()
+    -- Online error message
+    self.onlineError = nil
+    self.onlineRoomCode = nil
     
     -- Load fonts with nearest-neighbor filtering for crisp pixel art
     self.titleFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", TITLE_FONT_SIZE)
@@ -86,6 +85,8 @@ function Menu:hide()
     self.state = nil
     self.selectedIndex = 1
     self.roomCode = nil
+    self.onlineRoomCode = nil
+    self.onlineError = nil
     self.roomCodeDigits = {"", "", "", "", "", ""}
     self.currentDigitIndex = 1
 end
@@ -287,11 +288,19 @@ function Menu:drawWaiting()
     
     self:drawTitle("Waiting for Player", 30)
     
-    if self.roomCode then
+    local roomCode = self.onlineRoomCode or self.roomCode
+    if roomCode then
         -- Display room code prominently
         love.graphics.setFont(self.titleFont)
         love.graphics.setColor(1, 1, 0.3)
-        love.graphics.printf(self.roomCode, self._offsetX, self._offsetY + 75 * self._scale, GAME_WIDTH * self._scale, "center")
+        love.graphics.printf(roomCode, self._offsetX, self._offsetY + 75 * self._scale, GAME_WIDTH * self._scale, "center")
+        
+        -- Show error if any
+        if self.onlineError then
+            love.graphics.setFont(self.smallFont)
+            love.graphics.setColor(1, 0.3, 0.3)
+            love.graphics.printf(self.onlineError, self._offsetX, self._offsetY + 100 * self._scale, GAME_WIDTH * self._scale, "center")
+        end
     else
         love.graphics.setFont(self.bodyFont)
         love.graphics.setColor(0.6, 0.6, 0.6)
@@ -503,6 +512,8 @@ function Menu:handleCreateGameKey(key)
     elseif key == "return" then
         self.state = Menu.STATE.WAITING
         self.roomCode = nil
+        self.onlineRoomCode = nil
+        self.onlineError = nil
         self:createRoom()
         return true
     elseif key == "escape" then
@@ -518,6 +529,8 @@ function Menu:handleWaitingKey(key)
         self.state = Menu.STATE.ONLINE
         self.selectedIndex = 1
         self.roomCode = nil
+        self.onlineRoomCode = nil
+        self.onlineError = nil
         return true
     end
     return false
@@ -583,20 +596,12 @@ end
 function Menu:createRoom()
     print("Creating room (public: " .. tostring(self.isPublic) .. ")...")
     
-    local result = self.onlineClient:createRoom(self.isPublic)
-    
-    if result.success then
-        self.roomCode = result.roomCode
-        self.wsUrl = result.wsUrl
-        print("Room created! Code: " .. self.roomCode)
-        
-        if self.onRoomCreated then
-            self.onRoomCreated(self.roomCode, self.wsUrl)
-        end
-    else
-        print("Failed to create room: " .. (result.error or "Unknown error"))
-        self.state = Menu.STATE.CREATE_GAME
-        -- Don't reset isPublic - keep user's choice
+    -- This will be handled by ConnectionManager via the callback
+    if self.onRoomCreated then
+        -- ConnectionManager will handle the actual creation
+        -- We just need to trigger the callback with a placeholder
+        -- The actual room creation happens in ConnectionManager.hostOnline
+        self.onRoomCreated(nil, nil)  -- Will be set by ConnectionManager
     end
 end
 
@@ -604,21 +609,10 @@ end
 function Menu:joinRoom(code)
     print("Joining room: " .. code)
     
-    local result = self.onlineClient:joinRoom(code)
-    
-    if result.success then
-        self.roomCode = result.roomCode
-        self.wsUrl = result.wsUrl
-        self.playerId = result.playerId
-        print("Joined room! Code: " .. self.roomCode)
-        
-        if self.onRoomJoined then
-            self.onRoomJoined(self.roomCode, self.wsUrl, self.playerId)
-        end
-        
-        self:hide()
-    else
-        print("Failed to join room: " .. (result.error or "Unknown error"))
+    -- This will be handled by ConnectionManager via the callback
+    if self.onRoomJoined then
+        -- ConnectionManager will handle the actual joining
+        self.onRoomJoined(code, nil, nil)  -- Will be set by ConnectionManager
     end
 end
 
@@ -627,15 +621,28 @@ function Menu:refreshPublicRooms()
     self.refreshingRooms = true
     print("Refreshing public rooms...")
     
-    local result = self.onlineClient:listRooms()
-    
-    if result.success then
-        self.publicRooms = result.rooms or {}
-        print("Found " .. #self.publicRooms .. " public rooms")
-    else
-        print("Failed to list rooms: " .. (result.error or "Unknown error"))
+    -- This will be handled by ConnectionManager
+    -- For now, we'll need to access the game's connectionManager
+    -- This is a bit of a hack, but menu needs access to game
+    -- In a better design, menu would get a reference to game or connectionManager
+    -- For now, we'll keep the direct onlineClient call but it should work
+    local OnlineClient = require("src.net.online_client")
+    if not OnlineClient.isAvailable() then
         self.publicRooms = {}
+        self.refreshingRooms = false
+        return
     end
+    
+    local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
+    if not success then
+        self.publicRooms = {}
+        self.refreshingRooms = false
+        return
+    end
+    
+    local rooms = onlineClient:listRooms()
+    self.publicRooms = rooms or {}
+    print("Found " .. #self.publicRooms .. " public rooms")
     
     self.refreshingRooms = false
     self.selectedIndex = 1

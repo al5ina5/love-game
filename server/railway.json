@@ -16,6 +16,10 @@
         {
           "port": 8080,
           "protocol": "tcp"
+        },
+        {
+          "port": 12346,
+          "protocol": "tcp"
         }
       ]
     }

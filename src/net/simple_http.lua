@@ -1,163 +1,199 @@
 -- src/net/simple_http.lua
--- Simple HTTP client using curl/wget as fallback
--- Works for both HTTP and HTTPS
+-- Simple HTTP client using system commands (curl/wget) as fallback
+-- Works on systems without lua-sec installed
+
+local json = require("src.lib.dkjson")
 
 local SimpleHTTP = {}
-SimpleHTTP.__index = SimpleHTTP
 
--- Execute shell command and return output
-local function execCommand(cmd)
-    local handle = io.popen(cmd .. " 2>&1")
-    if not handle then
-        return nil, "Failed to execute command"
+-- Check if curl or wget is available
+function SimpleHTTP.isAvailable()
+    -- Try curl first (most common, built into macOS and Windows 10+)
+    local handle = io.popen("curl --version 2>/dev/null")
+    if handle then
+        local result = handle:read("*a")
+        handle:close()
+        if result and result:match("curl") then
+            return true, "curl"
+        end
     end
     
-    local output = handle:read("*a")
-    local success = handle:close()
-    
-    if not success then
-        return nil, "Command failed"
+    -- Try wget (common on Linux)
+    handle = io.popen("wget --version 2>/dev/null")
+    if handle then
+        local result = handle:read("*a")
+        handle:close()
+        if result and result:match("GNU Wget") then
+            return true, "wget"
+        end
     end
     
-    return output, nil
-end
-
--- Check if curl is available
-local function hasCurl()
-    local output, err = execCommand("curl --version")
-    return output ~= nil and output ~= ""
-end
-
--- Check if wget is available
-local function hasWget()
-    local output, err = execCommand("wget --version")
-    return output ~= nil and output ~= ""
+    return false, nil
 end
 
 -- Make HTTP request using curl
-local function requestWithCurl(method, url, headers, body)
+function SimpleHTTP.requestWithCurl(method, url, body, headers)
+    local tempFile = os.tmpname()
+    local tempStatusFile = os.tmpname()
+    local tempBodyFile = nil
+    
+    -- Build curl command
+    -- Write status code to separate file for reliable parsing
     local cmd = "curl -s -X " .. method
     
-    -- Add headers
+    -- Add headers FIRST (especially Content-Type must come before -d)
     if headers then
         for key, value in pairs(headers) do
-            -- Escape header values properly for shell
-            local escapedValue = value:gsub('"', '\\"')
-            cmd = cmd .. " -H \"" .. key .. ": " .. escapedValue .. "\""
+            -- Only add Content-Type if we have a body
+            if key ~= "Content-Type" or body then
+                cmd = cmd .. string.format(" -H '%s: %s'", key, value)
+            end
         end
     end
     
-    -- Add body for POST/PUT
-    if body and (method == "POST" or method == "PUT") then
-        -- Use --data with single quotes and escape single quotes in the body
-        -- Replace single quotes with '\'' (bash escaping)
-        local escapedBody = body:gsub("'", "'\\''")
-        cmd = cmd .. " --data '" .. escapedBody .. "'"
-    end
-    
-    cmd = cmd .. " \"" .. url .. "\""
-    
-    print("Executing curl command...")
+    -- Add body for POST requests AFTER headers
     if body then
-        print("Body length: " .. #body .. " bytes")
-        print("Body content: " .. body)
-    end
-    local output, err = execCommand(cmd)
-    
-    if err then
-        print("Curl error: " .. tostring(err))
-        return nil, err
-    end
-    
-    if not output or output == "" then
-        print("Curl returned empty response")
-        return nil, "Empty response from curl"
+        tempBodyFile = os.tmpname()
+        local f = io.open(tempBodyFile, "w")
+        if f then
+            f:write(body)
+            f:close()
+            cmd = cmd .. " -d @" .. tempBodyFile
+        end
     end
     
-    -- Check if response is HTML (error page)
-    if output:match("^%s*<!DOCTYPE") or output:match("^%s*<html") then
-        print("Server returned HTML error page instead of JSON")
-        print("Response: " .. output:sub(1, 500))
-        return nil, "Server returned HTML error page: " .. output:sub(1, 200)
+    -- Add URL and output files
+    cmd = cmd .. " '" .. url .. "' -o " .. tempFile .. " -w '%{http_code}' > " .. tempStatusFile .. " 2>/dev/null"
+    
+    -- Execute command
+    local result = os.execute(cmd)
+    
+    -- Read HTTP status code
+    local statusFile = io.open(tempStatusFile, "r")
+    local httpCode = "500"
+    if statusFile then
+        local statusContent = statusFile:read("*a")
+        statusFile:close()
+        httpCode = statusContent:match("(%d+)") or "500"
+    end
+    os.remove(tempStatusFile)
+    
+    -- Read response body
+    local f = io.open(tempFile, "r")
+    if not f then
+        if tempBodyFile then os.remove(tempBodyFile) end
+        os.remove(tempFile)
+        return false, "Failed to read response"
     end
     
-    return output, nil
+    local responseBody = f:read("*a")
+    f:close()
+    
+    -- Cleanup temp files
+    os.remove(tempFile)
+    if tempBodyFile then os.remove(tempBodyFile) end
+    
+    local code = tonumber(httpCode) or 500
+    
+    if code >= 200 and code < 300 then
+        if responseBody and responseBody ~= "" then
+            local success, data = pcall(json.decode, responseBody)
+            if success and data then
+                return true, data
+            end
+        end
+        return true, {}
+    else
+        return false, "HTTP " .. code .. ": " .. (responseBody or "")
+    end
 end
 
 -- Make HTTP request using wget
-local function requestWithWget(method, url, headers, body)
-    local cmd = "wget -q -O -"
+function SimpleHTTP.requestWithWget(method, url, body, headers)
+    local tempFile = os.tmpname()
+    local tempBodyFile = nil
+    
+    -- Build wget command
+    local cmd = "wget -q --method=" .. method
     
     -- Add headers
     if headers then
         for key, value in pairs(headers) do
-            cmd = cmd .. " --header=\"" .. key .. ": " .. value .. "\""
+            cmd = cmd .. string.format(" --header='%s: %s'", key, value)
         end
     end
     
-    -- Add method (wget defaults to GET, need --method for POST)
-    if method ~= "GET" then
-        cmd = cmd .. " --method=" .. method
+    -- Add body for POST requests
+    if body then
+        tempBodyFile = os.tmpname()
+        local f = io.open(tempBodyFile, "w")
+        if f then
+            f:write(body)
+            f:close()
+            cmd = cmd .. " --body-file=" .. tempBodyFile
+        end
     end
     
-    -- Add body for POST/PUT
-    if body and (method == "POST" or method == "PUT") then
-        cmd = cmd .. " --body-data='" .. body:gsub("'", "'\\''") .. "'"
+    -- Add URL and output file
+    cmd = cmd .. " '" .. url .. "' -O " .. tempFile .. " 2>/dev/null"
+    
+    -- Execute command
+    local result = os.execute(cmd)
+    local success = (result == 0 or result == true)
+    
+    -- Read response
+    local f = io.open(tempFile, "r")
+    if not f then
+        if tempBodyFile then os.remove(tempBodyFile) end
+        os.remove(tempFile)
+        return false, "Failed to read response"
     end
     
-    cmd = cmd .. " \"" .. url .. "\""
+    local responseBody = f:read("*a")
+    f:close()
     
-    local output, err = execCommand(cmd)
-    if err then
-        return nil, err
+    -- Cleanup temp files
+    os.remove(tempFile)
+    if tempBodyFile then os.remove(tempBodyFile) end
+    
+    if success and responseBody and responseBody ~= "" then
+        local jsonSuccess, data = pcall(json.decode, responseBody)
+        if jsonSuccess and data then
+            return true, data
+        end
     end
     
-    return output, nil
+    return false, "Request failed or invalid JSON response"
 end
 
--- Make HTTP/HTTPS request
--- method: string ("GET", "POST", etc.)
--- url: string
--- headers: table (optional)
--- body: string (optional, JSON string)
--- Returns: response body (string) or nil, error message
-function SimpleHTTP.request(method, url, headers, body)
-    method = method or "GET"
-    headers = headers or {}
+-- Generic request method that auto-detects which tool to use
+function SimpleHTTP.request(method, url, body)
+    local available, tool = SimpleHTTP.isAvailable()
     
-    print("SimpleHTTP: Making " .. method .. " request to " .. url)
-    
-    -- Try curl first (better HTTPS support)
-    if hasCurl() then
-        print("SimpleHTTP: Using curl")
-        local response, err = requestWithCurl(method, url, headers, body)
-        if response then
-            print("SimpleHTTP: Curl request successful, response length: " .. #response)
-            return response, nil
-        else
-            print("SimpleHTTP: Curl request failed: " .. (err or "Unknown error"))
-            -- If curl fails, try wget
-        end
-    else
-        print("SimpleHTTP: curl not available")
+    if not available then
+        return false, "No HTTP client available (curl/wget not found)"
     end
     
-    -- Try wget as fallback
-    if hasWget() then
-        print("SimpleHTTP: Using wget")
-        local response, err = requestWithWget(method, url, headers, body)
-        if response then
-            print("SimpleHTTP: Wget request successful")
-            return response, nil
-        else
-            print("SimpleHTTP: Wget request failed: " .. (err or "Unknown error"))
-            return nil, err or "wget request failed"
-        end
-    else
-        print("SimpleHTTP: wget not available")
+    local headers = {
+        ["Content-Type"] = "application/json"
+    }
+    
+    if tool == "curl" then
+        return SimpleHTTP.requestWithCurl(method, url, body, headers)
+    elseif tool == "wget" then
+        return SimpleHTTP.requestWithWget(method, url, body, headers)
     end
     
-    return nil, "Neither curl nor wget is available"
+    return false, "Unknown HTTP client: " .. tostring(tool)
+end
+
+-- Convenience methods
+function SimpleHTTP.get(url)
+    return SimpleHTTP.request("GET", url, nil)
+end
+
+function SimpleHTTP.post(url, body)
+    return SimpleHTTP.request("POST", url, body)
 end
 
 return SimpleHTTP

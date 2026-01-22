@@ -1,461 +1,156 @@
 -- src/net/online_client.lua
--- REST API client for Railway matchmaker server
--- Handles room creation, joining, listing, and keep-alive
+-- Online multiplayer matchmaker client for the Render service
+-- Handles room creation, listing, and joining via REST API
+
+local json = require("src.lib.dkjson")
+local Constants = require("src.constants")
+
+-- Try to load HTTPS support (lua-sec - preferred method)
+local https
+local ltn12
+local hasLuaSec = pcall(function()
+    https = require("ssl.https")
+    ltn12 = require("ltn12")
+end)
+
+-- Fallback: Try simple HTTP (curl/wget)
+local SimpleHTTP
+local hasSimpleHTTP = false
+if not hasLuaSec then
+    local success, module = pcall(require, "src.net.simple_http")
+    if success then
+        SimpleHTTP = module
+        hasSimpleHTTP = SimpleHTTP.isAvailable()
+    end
+end
 
 local OnlineClient = {}
 OnlineClient.__index = OnlineClient
 
--- Server URL - set this to your Railway deployment
-OnlineClient.SERVER_URL = "https://love-game-production.up.railway.app"
-
--- Try to load dkjson once at module load time
-local dkjson = nil
-local function loadDkjson()
-    if dkjson then return dkjson end
-    
-    -- Try src.lib.dkjson first
-    print("Attempting to require src.lib.dkjson...")
-    local success, module = pcall(require, "src.lib.dkjson")
-    print("Require result: success=" .. tostring(success) .. ", module type=" .. type(module))
-    
-    if success then
-        if module and type(module) == "table" then
-            if module.encode and module.decode then
-                dkjson = module
-                print("dkjson loaded successfully from src.lib.dkjson (has encode and decode)")
-                return dkjson
-            else
-                print("dkjson table loaded but missing methods. Has encode: " .. tostring(module.encode ~= nil) .. ", Has decode: " .. tostring(module.decode ~= nil))
-                -- Try to use it anyway
-                dkjson = module
-                return dkjson
-            end
-        else
-            print("dkjson returned non-table: " .. tostring(module) .. " (type: " .. type(module) .. ")")
-        end
-    else
-        print("dkjson require failed with error: " .. tostring(module))
-    end
-    
-    -- Try alternative path
-    print("Attempting to require lib.dkjson...")
-    success, module = pcall(require, "lib.dkjson")
-    if success and module and type(module) == "table" then
-        if module.encode and module.decode then
-            dkjson = module
-            print("dkjson loaded from lib.dkjson")
-            return dkjson
-        end
-    end
-    
-    print("dkjson not available - all load attempts failed")
-    return nil
-end
-
--- Try loading immediately and print result
-print("Attempting to load dkjson at module init...")
-local initResult = loadDkjson()
-if initResult then
-    print("dkjson initialized successfully")
-else
-    print("dkjson initialization failed - will retry on first use")
+-- Check if online multiplayer is available
+function OnlineClient.isAvailable()
+    return hasLuaSec or hasSimpleHTTP
 end
 
 function OnlineClient:new()
+    if not OnlineClient.isAvailable() then
+        error("Online multiplayer requires HTTPS support (install lua-sec or ensure curl/wget is available)")
+    end
+    
     local self = setmetatable({}, OnlineClient)
-    self.serverUrl = OnlineClient.SERVER_URL
+    self.roomCode = nil
+    self.connected = false
+    self.apiUrl = Constants.API_BASE_URL
+    self.httpMethod = hasLuaSec and "luasec" or "simple"
+    
     return self
 end
 
--- Set custom server URL (for testing or different deployments)
-function OnlineClient:setServerUrl(url)
-    self.serverUrl = url
-end
-
--- Create a new room
--- isPublic: boolean (optional, default false)
--- hostId: string (optional, auto-generated if not provided)
--- Returns: { success: bool, roomCode: string, wsUrl: string } or { success: false, error: string }
-function OnlineClient:createRoom(isPublic, hostId)
-    isPublic = isPublic or false
-    
-    local url = self.serverUrl .. "/api/create-room"
-    local body = {
-        isPublic = isPublic,
-        hostId = hostId
-    }
-    
-    print("Creating room at: " .. url)
-    local response = self:httpRequest("POST", url, body)
-    
-    if response then
-        print("Response received, type: " .. type(response))
-        if type(response) == "table" then
-            print("Response keys: " .. table.concat(self:getTableKeys(response), ", "))
-            if response.success then
-                return {
-                    success = true,
-                    roomCode = response.roomCode,
-                    wsUrl = response.wsUrl
-                }
-            else
-                return {
-                    success = false,
-                    error = response.error or "Failed to create room"
-                }
-            end
-        else
-            print("Unexpected response type: " .. type(response))
-            return {
-                success = false,
-                error = "Invalid response from server"
-            }
-        end
-    else
-        print("No response from server (nil)")
-        return {
-            success = false,
-            error = "No response from server. Check network connection and server URL."
-        }
-    end
-end
-
--- Helper to get table keys for debugging
-function OnlineClient:getTableKeys(tbl)
-    local keys = {}
-    for k, v in pairs(tbl) do
-        table.insert(keys, tostring(k))
-    end
-    return keys
-end
-
--- Join a room by code
--- code: string (6-digit room code)
--- playerId: string (optional, auto-generated if not provided)
--- Returns: { success: bool, roomCode: string, wsUrl: string, playerId: string } or { success: false, error: string }
-function OnlineClient:joinRoom(code, playerId)
-    if not code then
-        return { success = false, error = "Room code required" }
-    end
-    
-    local url = self.serverUrl .. "/api/join-room"
-    local body = {
-        code = code,
-        playerId = playerId
-    }
-    
-    local response = self:httpRequest("POST", url, body)
-    
-    if response and response.success then
-        return {
-            success = true,
-            roomCode = response.roomCode,
-            wsUrl = response.wsUrl,
-            playerId = response.playerId
-        }
-    else
-        return {
-            success = false,
-            error = response and response.error or "Failed to join room"
-        }
-    end
-end
-
--- List public rooms
--- Returns: { success: bool, rooms: array }
-function OnlineClient:listRooms()
-    local url = self.serverUrl .. "/api/list-rooms"
-    local response = self:httpRequest("GET", url)
-    
-    if response and response.success then
-        return {
-            success = true,
-            rooms = response.rooms or {}
-        }
-    else
-        return {
-            success = false,
-            error = response and response.error or "Failed to list rooms",
-            rooms = {}
-        }
-    end
-end
-
--- Keep room alive (heartbeat)
--- code: string (room code)
--- Returns: { success: bool } or { success: false, error: string }
-function OnlineClient:keepAlive(code)
-    if not code then
-        return { success = false, error = "Room code required" }
-    end
-    
-    local url = self.serverUrl .. "/api/keep-alive"
-    local body = { code = code }
-    
-    local response = self:httpRequest("POST", url, body)
-    
-    if response and response.success then
-        return { success = true }
-    else
-        return {
-            success = false,
-            error = response and response.error or "Failed to keep room alive"
-        }
-    end
-end
-
--- Get room status
--- code: string (room code)
--- Returns: { success: bool, room: table } or { success: false, error: string }
-function OnlineClient:getRoomStatus(code)
-    if not code then
-        return { success = false, error = "Room code required" }
-    end
-    
-    local url = self.serverUrl .. "/api/room/" .. code
-    local response = self:httpRequest("GET", url)
-    
-    if response and response.success then
-        return {
-            success = true,
-            room = response.room
-        }
-    else
-        return {
-            success = false,
-            error = response and response.error or "Failed to get room status"
-        }
-    end
-end
-
--- HTTP request helper
--- Tries multiple methods in order:
--- 1. lua-https (LOVE2D 12.0+)
--- 2. ssl.https (if available)
--- 3. simple_http (curl/wget fallback) - works for HTTPS
--- 4. luasocket (HTTP only)
--- method: string ("GET", "POST", etc.)
--- url: string
--- body: table (optional, will be JSON encoded)
--- Returns: parsed JSON response or nil
+-- Helper: Make HTTP request
 function OnlineClient:httpRequest(method, url, body)
-    local headers = {
-        ["Content-Type"] = "application/json"
-    }
-    local requestBody = nil
+    print("OnlineClient: HTTP " .. method .. " " .. url)
     if body then
-        requestBody = self:jsonEncode(body)
+        print("OnlineClient: Request body: " .. body:sub(1, 200))
     end
     
-    -- Try 1: lua-https (LOVE2D 12.0+)
-    local https, httpsErr = pcall(require, "https")
-    if https then
-        https = require("https")
-        local options = {
-            method = method,
-            headers = headers
+    if self.httpMethod == "luasec" then
+        local response = {}
+        local headers = {
+            ["Content-Type"] = "application/json",
+            ["Content-Length"] = body and tostring(#body) or "0"
         }
         
-        if requestBody then
-            options.data = requestBody
-        end
-        
-        local code, responseBody, responseHeaders = https.request(url, options)
-        
-        if code >= 200 and code < 300 then
-            if responseBody and #responseBody > 0 then
-                return self:jsonDecode(responseBody)
-            else
-                return {}
-            end
-        elseif code ~= 0 then
-            print("HTTP Error " .. code .. ": " .. (responseBody or ""))
-            -- Continue to fallback
-        end
-    end
-    
-    -- Try 2: ssl.https (if available)
-    local ssl, sslErr = pcall(require, "ssl.https")
-    if ssl then
-        ssl = require("ssl.https")
-        local ltn12 = require("ltn12")
-        
-        local responseBody = {}
-        local result, code, responseHeaders, status = ssl.request{
+        local request = {
             url = url,
             method = method,
             headers = headers,
-            source = requestBody and ltn12.source.string(requestBody) or nil,
-            sink = ltn12.sink.table(responseBody)
+            source = body and ltn12.source.string(body) or nil,
+            sink = ltn12.sink.table(response)
         }
         
-        if code >= 200 and code < 300 then
-            local bodyStr = table.concat(responseBody)
-            if #bodyStr > 0 then
-                return self:jsonDecode(bodyStr)
-            else
-                return {}
-            end
-        elseif code then
-            print("HTTP Error " .. code .. ": " .. (status or ""))
-            -- Continue to fallback
+        local ok, code = https.request(request)
+        if not ok then 
+            print("OnlineClient: luasec request failed: " .. tostring(code))
+            return false, "Request failed: " .. tostring(code) 
         end
-    end
-    
-    -- Try 3: simple_http (curl/wget fallback) - works for HTTPS
-    local simpleHTTP, simpleErr = pcall(require, "src.net.simple_http")
-    if simpleHTTP then
-        simpleHTTP = require("src.net.simple_http")
-        print("Using curl/wget fallback for HTTPS request...")
-        local responseBody, err = simpleHTTP.request(method, url, headers, requestBody)
         
-        if responseBody then
-            print("HTTP request successful, response length: " .. #responseBody)
-            if #responseBody > 0 then
-                local decoded = self:jsonDecode(responseBody)
-                if decoded then
-                    return decoded
-                else
-                    print("Failed to decode JSON response - server may have returned an error")
-                    print("Response: " .. (responseBody:sub(1, 300) or ""))
-                    -- Return error response structure
-                    return {
-                        success = false,
-                        error = "Server returned invalid response (not JSON)"
-                    }
-                end
-            else
-                return {}
+        local responseBody = table.concat(response)
+        print("OnlineClient: Response code: " .. tostring(code) .. ", body length: " .. #responseBody)
+        if code >= 200 and code < 300 then
+            local success, data = pcall(json.decode, responseBody)
+            if not success then
+                print("OnlineClient: JSON decode failed. Response: " .. responseBody:sub(1, 500))
+                return false, "Invalid JSON response"
             end
+            return success, data
         else
-            print("SimpleHTTP error: " .. (err or "Unknown error"))
-            return {
-                success = false,
-                error = err or "HTTP request failed"
-            }
+            print("OnlineClient: HTTP error " .. code .. ": " .. responseBody:sub(1, 200))
+            return false, "HTTP " .. code .. ": " .. (responseBody:sub(1, 100) or "")
         end
     else
-        print("SimpleHTTP not available: " .. tostring(simpleErr))
-    end
-    
-    -- Try 4: luasocket (HTTP only, no HTTPS)
-    local socket = require("socket")
-    local http = require("socket.http")
-    local ltn12 = require("ltn12")
-    
-    -- Check if URL is HTTPS
-    if url:match("^https://") then
-        print("ERROR: All HTTPS methods failed.")
-        print("Tried: lua-https, ssl.https, curl/wget fallback")
-        print("URL: " .. url)
-        print("Please ensure curl or wget is installed, or upgrade to LOVE2D 12.0+")
-        return nil
-    end
-    
-    -- HTTP request using luasocket
-    local responseBody = {}
-    local result, code, responseHeaders, status = http.request{
-        url = url,
-        method = method,
-        headers = headers,
-        source = requestBody and ltn12.source.string(requestBody) or nil,
-        sink = ltn12.sink.table(responseBody)
-    }
-    
-    if code >= 200 and code < 300 then
-        local bodyStr = table.concat(responseBody)
-        if #bodyStr > 0 then
-            return self:jsonDecode(bodyStr)
+        local success, data = SimpleHTTP.request(method, url, body)
+        if not success then
+            print("OnlineClient: SimpleHTTP request failed: " .. tostring(data))
         else
-            return {}
+            print("OnlineClient: SimpleHTTP request succeeded")
         end
-    else
-        print("HTTP Error " .. code .. ": " .. (status or ""))
-        return nil
+        return success, data
     end
 end
 
--- JSON encode - tries multiple methods
-function OnlineClient:jsonEncode(data)
-    -- Try LOVE2D's built-in JSON encoder first
-    if love.data and love.data.encode then
-        local success, result = pcall(function()
-            return love.data.encode("string", "json", data)
-        end)
-        if success and result then
-            return result
-        end
+-- Matchmaking API
+function OnlineClient:createRoom(isPublic)
+    print("OnlineClient: Creating room (public: " .. tostring(isPublic) .. ") at " .. self.apiUrl .. "/api/create-room")
+    local success, response = self:httpRequest("POST", self.apiUrl .. "/api/create-room", json.encode({ isPublic = isPublic or false }))
+    if not success then 
+        print("OnlineClient: createRoom failed - success=" .. tostring(success) .. ", response=" .. tostring(response))
+        return false, response or "Unknown error"
     end
-    
-    -- Try dkjson library (load if not already loaded)
-    local jsonLib = dkjson or loadDkjson()
-    if jsonLib and type(jsonLib) == "table" then
-        if jsonLib.encode then
-            local success, result = pcall(function()
-                return jsonLib.encode(data)
-            end)
-            if success and result then
-                return result
-            else
-                print("dkjson.encode pcall failed: " .. tostring(result))
-            end
-        else
-            print("dkjson loaded but missing encode method")
-        end
-    else
-        print("dkjson not available: " .. tostring(jsonLib))
+    if not response or not response.roomCode then
+        print("OnlineClient: createRoom response missing roomCode. Response: " .. (response and json.encode(response) or "nil"))
+        return false, "Invalid response from server"
     end
-    
-    -- Fallback: error if no JSON library available
-    error("JSON encoding not available. Please ensure LOVE2D 11.0+ or dkjson library is present. dkjson status: " .. tostring(dkjson))
+    self.roomCode = response.roomCode
+    print("OnlineClient: Room created successfully: " .. self.roomCode)
+    return true, self.roomCode
 end
 
--- JSON decode - tries multiple methods
-function OnlineClient:jsonDecode(jsonString)
-    if not jsonString or jsonString == "" then
-        return nil
+function OnlineClient:joinRoom(roomCode)
+    -- Server expects "code" not "roomCode"
+    local success, response = self:httpRequest("POST", self.apiUrl .. "/api/join-room", json.encode({ code = roomCode:upper() }))
+    if not success then 
+        print("OnlineClient: joinRoom failed - success=" .. tostring(success) .. ", response=" .. tostring(response))
+        return false, response or "Unknown error"
     end
-    
-    -- Check if response is HTML (error page) - don't try to decode as JSON
-    if jsonString:match("^%s*<!DOCTYPE") or jsonString:match("^%s*<html") then
-        print("Warning: Server returned HTML instead of JSON")
-        print("Response: " .. jsonString:sub(1, 200))
-        return nil  -- Return nil to indicate error, don't throw
+    if response and response.success == false then
+        print("OnlineClient: joinRoom server error: " .. (response.error or "Unknown error"))
+        return false, response.error or "Unknown error"
     end
-    
-    -- Try LOVE2D's built-in JSON decoder first
-    if love.data and love.data.decode then
-        local success, result = pcall(function()
-            return love.data.decode("string", "json", jsonString)
-        end)
-        if success and result then
-            return result
-        end
+    self.roomCode = roomCode:upper()
+    print("OnlineClient: Successfully joined room: " .. self.roomCode)
+    return true
+end
+
+function OnlineClient:listRooms()
+    local success, response = self:httpRequest("GET", self.apiUrl .. "/api/list-rooms")
+    if not success then return {} end
+    return response.rooms or {}
+end
+
+function OnlineClient:heartbeat()
+    if not self.roomCode then return false end
+    -- Server uses /api/keep-alive, not /api/heartbeat, and expects "code" not "roomCode"
+    local success, response = self:httpRequest("POST", self.apiUrl .. "/api/keep-alive", json.encode({ code = self.roomCode }))
+    if not success then
+        print("OnlineClient: heartbeat failed: " .. tostring(response))
+        return false
     end
-    
-    -- Try dkjson library (load if not already loaded)
-    local jsonLib = dkjson or loadDkjson()
-    if jsonLib and type(jsonLib) == "table" then
-        if jsonLib.decode then
-            local success, result = pcall(function()
-                return jsonLib.decode(jsonString)
-            end)
-            if success and result then
-                return result
-            else
-                print("dkjson.decode failed - response might not be valid JSON")
-                print("Response preview: " .. jsonString:sub(1, 200))
-                return nil  -- Return nil instead of throwing error
-            end
-        else
-            print("dkjson loaded but missing decode method")
-        end
-    else
-        print("dkjson not available for decode: " .. tostring(jsonLib))
-    end
-    
-    -- Return nil instead of error - let caller handle it
-    return nil
+    return true
+end
+
+function OnlineClient:disconnect()
+    self.roomCode = nil
+    self.connected = false
 end
 
 return OnlineClient
