@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "name": "WalkingTogether",
+    "items": ["WalkingTogether.sh"],
+    "items_opt": [],
+    "attr": {
+        "title": "Walking Together",
+        "desc": "Multiplayer walking simulator boilerplate.",
+        "inst": "D-Pad to move. X/Y for Menu. Host on one device, Find on another!",
+        "genres": ["multiplayer", "sim"],
+        "porter": "Antigravity",
+        "runtime": "love-11.4"
+    }
+}
