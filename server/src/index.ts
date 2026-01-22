@@ -3,8 +3,8 @@ import cors from 'cors';
 import net from 'net';
 
 // --- Configuration ---
-const HTTP_PORT = process.env.PORT || 3000;
-const TCP_PORT = process.env.TCP_PORT || 12346;
+const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
+const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
 
 // --- Types ---
 interface Room {
@@ -97,7 +97,7 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
-app.listen(HTTP_PORT, () => {
+app.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`[HTTP] Matchmaker listening on port ${HTTP_PORT}`);
 });
 
@@ -206,6 +206,6 @@ const tcpServer = net.createServer((socket: net.Socket) => {
   });
 });
 
-tcpServer.listen(TCP_PORT, () => {
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
   console.log(`[TCP] Relay listening on port ${TCP_PORT}`);
 });
