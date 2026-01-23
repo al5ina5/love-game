@@ -63,7 +63,7 @@ function Discovery:startAdvertising(serverName, gamePort, maxPlayers)
     
     self.mode = "server"
     self.serverInfo = {
-        name = serverName or "Walking Together",
+        name = serverName or "Pixel Raiders",
         port = gamePort or 12345,
         players = 1,
         maxPlayers = maxPlayers or 4,

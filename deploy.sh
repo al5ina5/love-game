@@ -2,7 +2,7 @@
 # deploy.sh
 # Builds the game and deploys to multiple handheld devices via SSH/SSHPass
 
-GAME_NAME="WalkingTogether"
+GAME_NAME="PIXELRAIDERS"
 
 echo "=== Building $GAME_NAME ==="
 ./build_portmaster.sh

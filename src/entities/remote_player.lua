@@ -4,7 +4,7 @@
 local RemotePlayer = {}
 RemotePlayer.__index = RemotePlayer
 
-function RemotePlayer:new(x, y)
+function RemotePlayer:new(x, y, spriteName)
     local self = setmetatable({}, RemotePlayer)
     
     self.x = x or 0
@@ -20,8 +20,24 @@ function RemotePlayer:new(x, y)
     self.frameCount = 4
     self.frameTime = 0.15
     
-    -- Load sprite sheet (same as player for now, could randomize)
-    self.spriteSheet = love.graphics.newImage("assets/img/sprites/Crimson Slaad/CrimsonSlaad.png")
+    -- Load sprite sheet (will be set from network message or default)
+    self.spriteName = spriteName or "Elf Bladedancer"  -- Default fallback
+    self:setSprite(self.spriteName)
+    
+    self.width = 16
+    self.height = 16
+    self.originY = 12
+    
+    return self
+end
+
+function RemotePlayer:setSprite(spriteName)
+    if self.spriteName == spriteName and self.spriteSheet then
+        return  -- Already set
+    end
+    self.spriteName = spriteName
+    local spritePath = "assets/img/sprites/humans/" .. spriteName .. "/" .. spriteName:gsub(" ", "") .. ".png"
+    self.spriteSheet = love.graphics.newImage(spritePath)
     self.frameWidth = 16
     self.frameHeight = 16
     
@@ -34,12 +50,6 @@ function RemotePlayer:new(x, y)
             self.spriteSheet:getDimensions()
         )
     end
-    
-    self.width = 16
-    self.height = 16
-    self.originY = 12
-    
-    return self
 end
 
 function RemotePlayer:setTargetPosition(x, y, dir)
@@ -84,9 +94,13 @@ function RemotePlayer:update(dt)
 end
 
 function RemotePlayer:draw()
+    -- Round positions to pixels to prevent blur
+    local drawX = math.floor(self.x + 0.5)
+    local drawY = math.floor(self.y + 0.5)
+    
     -- Draw shadow
     love.graphics.setColor(0, 0, 0, 0.3)
-    love.graphics.ellipse("fill", self.x + 8, self.y + 14, 6, 3)
+    love.graphics.ellipse("fill", drawX + 8, drawY + 14, 6, 3)
     
     -- Draw sprite
     love.graphics.setColor(1, 1, 1)
@@ -102,8 +116,8 @@ function RemotePlayer:draw()
     love.graphics.draw(
         self.spriteSheet,
         self.quads[self.animFrame],
-        self.x + offsetX,
-        self.y,
+        drawX + offsetX,
+        drawY,
         0,
         scaleX, 1
     )

@@ -56,18 +56,42 @@ function NetworkAdapter:isConnected()
 end
 
 -- Send position update (for walking simulator)
-function NetworkAdapter:sendPosition(x, y, direction)
+function NetworkAdapter:sendPosition(x, y, direction, skin)
+    if not self:isConnected() then 
+        print("NetworkAdapter: sendPosition called but not connected (type: " .. (self.type or "nil") .. ")")
+        return false 
+    end
+    
+    if self.type == NetworkAdapter.TYPE.LAN then
+        if self.server then
+            self.server:sendPosition(x, y, direction, skin)
+        elseif self.client then
+            self.client:sendPosition(x, y, direction, skin)
+        end
+    else
+        if self.client then
+            print("NetworkAdapter: Forwarding sendPosition to " .. self.type .. " client")
+            self.client:sendPosition(x, y, direction, skin)
+        else
+            print("NetworkAdapter: sendPosition called but no client available (type: " .. self.type .. ")")
+        end
+    end
+    return true
+end
+
+-- Send pet position update
+function NetworkAdapter:sendPetPosition(playerId, x, y, monster)
     if not self:isConnected() then return false end
     
     if self.type == NetworkAdapter.TYPE.LAN then
         if self.server then
-            self.server:sendPosition(x, y, direction)
+            self.server:sendPetPosition(playerId, x, y, monster)
         elseif self.client then
-            self.client:sendPosition(x, y, direction)
+            self.client:sendPetPosition(playerId, x, y, monster)
         end
     else
         if self.client then
-            self.client:sendPosition(x, y, direction)
+            self.client:sendPetPosition(playerId, x, y, monster)
         end
     end
     return true

@@ -5,19 +5,26 @@
 local Pet = {}
 Pet.__index = Pet
 
-function Pet:new(owner)
+function Pet:new(owner, isRemote, monsterName)
     local self = setmetatable({}, Pet)
     
     -- Owner reference (the player we follow)
     self.owner = owner
+    self.isRemote = isRemote or false  -- If true, position comes from network, not AI
     
     -- Position (start near owner)
     self.x = owner.x + 20
     self.y = owner.y - 10
+    self.targetX = self.x
+    self.targetY = self.y
+    self.lerpSpeed = 10  -- For remote pets
     
     -- Velocity for smooth movement
     self.vx = 0
     self.vy = 0
+    
+    -- Collision check function (set by game)
+    self.checkCollision = nil
     
     -- AI behavior parameters
     self.preferredDistance = 25  -- Sweet spot distance from owner
@@ -35,7 +42,7 @@ function Pet:new(owner)
     
     -- Bobbing animation (floating effect)
     self.bobTimer = 0
-    self.bobAmount = 2           -- Pixels to bob up/down
+    self.bobAmount = 0           -- Pixels to bob up/down (disabled)
     self.bobSpeed = 3            -- Bob frequency
     
     -- Animation state
@@ -44,20 +51,29 @@ function Pet:new(owner)
     self.frameCount = 4
     self.frameTime = 0.2         -- Slower animation for idle floating
     
-    -- Load sprite sheet
-    self.spriteSheet = love.graphics.newImage("assets/img/sprites/Ocular Watcher/OcularWatcher.png")
-    self.frameWidth = 16
-    self.frameHeight = 16
-    
-    -- Create quads for each frame
-    self.quads = {}
-    for i = 0, self.frameCount - 1 do
-        self.quads[i + 1] = love.graphics.newQuad(
-            i * self.frameWidth, 0,
-            self.frameWidth, self.frameHeight,
-            self.spriteSheet:getDimensions()
-        )
+    -- Load sprite sheet - use provided monster name or randomly select
+    self.monsterName = monsterName
+    if not self.monsterName then
+        local monsterSprites = {
+            "Blinded Grimlock",
+            "Bloodshot Eye",
+            "Brawny Ogre",
+            "Crimson Slaad",
+            "Crushing Cyclops",
+            "Death Slime",
+            "Fungal Myconid",
+            "Humongous Ettin",
+            "Murky Slaad",
+            "Ochre Jelly",
+            "Ocular Watcher",
+            "Red Cap",
+            "Shrieker Mushroom",
+            "Stone Troll",
+            "Swamp Troll",
+        }
+        self.monsterName = monsterSprites[math.random(#monsterSprites)]
     end
+    self:setMonster(self.monsterName)
     
     -- Sprite info
     self.width = 16
@@ -73,7 +89,47 @@ function Pet:new(owner)
     return self
 end
 
+function Pet:setMonster(monsterName)
+    if self.monsterName == monsterName and self.spriteSheet then
+        return  -- Already set
+    end
+    self.monsterName = monsterName
+    local spritePath = "assets/img/sprites/monsters/" .. monsterName .. "/" .. monsterName:gsub(" ", "") .. ".png"
+    self.spriteSheet = love.graphics.newImage(spritePath)
+    self.frameWidth = 16
+    self.frameHeight = 16
+    
+    -- Create quads for each frame
+    self.quads = {}
+    for i = 0, self.frameCount - 1 do
+        self.quads[i + 1] = love.graphics.newQuad(
+            i * self.frameWidth, 0,
+            self.frameWidth, self.frameHeight,
+            self.spriteSheet:getDimensions()
+        )
+    end
+end
+
 function Pet:update(dt)
+    -- Remote pets just interpolate to target position
+    if self.isRemote then
+        local t = math.min(1, self.lerpSpeed * dt)
+        self.x = self.x + (self.targetX - self.x) * t
+        self.y = self.y + (self.targetY - self.y) * t
+        
+        -- Still animate
+        self.animTimer = self.animTimer + dt
+        if self.animTimer >= self.frameTime then
+            self.animTimer = self.animTimer - self.frameTime
+            self.animFrame = (self.animFrame % self.frameCount) + 1
+        end
+        
+        -- Bobbing animation
+        self.bobTimer = self.bobTimer + dt * self.bobSpeed
+        
+        return
+    end
+    
     -- Calculate distance to owner
     local dx = self.owner.x - self.x
     local dy = self.owner.y - self.y
@@ -149,9 +205,59 @@ function Pet:update(dt)
         self.vy = self.vy * 0.9
     end
     
-    -- Apply velocity
-    self.x = self.x + self.vx * dt
-    self.y = self.y + self.vy * dt
+    -- Apply velocity with obstacle avoidance
+    local newX = self.x + self.vx * dt
+    local newY = self.y + self.vy * dt
+    
+    -- Check for collisions before moving
+    if self.checkCollision and self.checkCollision(newX, newY, self.width, self.height) then
+        -- Collision detected! Try alternative paths
+        -- First, try moving only horizontally
+        local tryX = self.x + self.vx * dt
+        local tryY = self.y
+        if not self.checkCollision(tryX, tryY, self.width, self.height) then
+            newX = tryX
+            newY = tryY
+        else
+            -- Try moving only vertically
+            tryX = self.x
+            tryY = self.y + self.vy * dt
+            if not self.checkCollision(tryX, tryY, self.width, self.height) then
+                newX = tryX
+                newY = tryY
+            else
+                -- Try perpendicular movement (steer around obstacle)
+                -- Rotate movement vector 90 degrees
+                local perpX = -self.vy * dt * currentSpeed * 0.5
+                local perpY = self.vx * dt * currentSpeed * 0.5
+                tryX = self.x + perpX
+                tryY = self.y + perpY
+                if not self.checkCollision(tryX, tryY, self.width, self.height) then
+                    newX = tryX
+                    newY = tryY
+                else
+                    -- Try opposite perpendicular
+                    perpX = self.vy * dt * currentSpeed * 0.5
+                    perpY = -self.vx * dt * currentSpeed * 0.5
+                    tryX = self.x + perpX
+                    tryY = self.y + perpY
+                    if not self.checkCollision(tryX, tryY, self.width, self.height) then
+                        newX = tryX
+                        newY = tryY
+                    else
+                        -- Completely blocked, reduce velocity to try to find a way around
+                        self.vx = self.vx * 0.5
+                        self.vy = self.vy * 0.5
+                        newX = self.x
+                        newY = self.y
+                    end
+                end
+            end
+        end
+    end
+    
+    self.x = newX
+    self.y = newY
     
     -- Update facing direction based on velocity
     if math.abs(self.vx) > 2 then
@@ -181,12 +287,16 @@ function Pet:update(dt)
 end
 
 function Pet:draw()
-    -- Calculate bob offset
+    -- Round positions to pixels to prevent blur
+    local drawX = math.floor(self.x + 0.5)
+    local drawY = math.floor(self.y + 0.5)
+    
+    -- Calculate bob offset (keep as float for smooth animation, but round final position)
     local bobOffset = math.sin(self.bobTimer) * self.bobAmount
     
     -- Draw shadow (smaller, more transparent since it floats)
     love.graphics.setColor(0, 0, 0, 0.2)
-    love.graphics.ellipse("fill", self.x + 8, self.y + 14, 4, 2)
+    love.graphics.ellipse("fill", drawX + 8, drawY + 14, 4, 2)
     
     -- Draw sprite
     love.graphics.setColor(1, 1, 1)
@@ -199,11 +309,12 @@ function Pet:draw()
         offsetX = self.frameWidth
     end
     
+    -- Round the final Y position including bob offset
     love.graphics.draw(
         self.spriteSheet,
         self.quads[self.animFrame],
-        self.x + offsetX,
-        self.y + bobOffset,
+        drawX + offsetX,
+        math.floor(drawY + bobOffset + 0.5),
         0,  -- rotation
         scaleX, 1  -- scale
     )

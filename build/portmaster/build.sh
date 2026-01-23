@@ -1,0 +1,495 @@
+#!/bin/bash
+# build/portmaster/build.sh
+# Builds PortMaster package for Pixel Raiders (SpruceOS, muOS, etc.)
+#
+# Usage: ./build/portmaster/build.sh
+# Output: dist/portmaster/
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+GAME_NAME="PIXELRAIDERS"
+BUILD_DIR="$PROJECT_ROOT/dist/portmaster"
+
+cd "$PROJECT_ROOT"
+
+echo "=== Building PortMaster Package for $GAME_NAME ==="
+echo "Project root: $PROJECT_ROOT"
+echo "Output: $BUILD_DIR"
+echo ""
+
+# 1. Clean and create build structure
+echo "[1/6] Cleaning build directory..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR/$GAME_NAME"
+
+# 2. Package the .love file
+echo "[2/6] Creating $GAME_NAME.love..."
+zip -9 -r "$BUILD_DIR/$GAME_NAME/$GAME_NAME.love" . \
+    -x "*.git*" \
+    -x "dist/*" \
+    -x "build/*" \
+    -x "server/*" \
+    -x "*.DS_Store" \
+    -x "raw_udp_test.lua" \
+    -x "debug/*" \
+    -x "relay/*" \
+    -x "docs/*" \
+    -x "Dockerfile" \
+    -x ".env" \
+    -x "deploy.sh" \
+    -x "build_portmaster.sh"
+
+# 3. Create the Launcher (.sh)
+echo "[3/6] Creating launcher script..."
+cat > "$BUILD_DIR/$GAME_NAME.sh" << LAUNCHER_EOF
+#!/bin/bash
+# PortMaster Launcher for Pixel Raiders
+
+# Create a temporary log file first (before we know GAMEDIR)
+TEMP_LOG="/tmp/pixelraiders_launch_\$\$.log"
+echo "=== Pixel Raiders Launch Log ===" > "\$TEMP_LOG"
+echo "Timestamp: \$(date)" >> "\$TEMP_LOG"
+echo "PID: \$\$" >> "\$TEMP_LOG"
+echo "" >> "\$TEMP_LOG"
+
+log() {
+    echo "\$1" | tee -a "\$TEMP_LOG"
+}
+
+log_error() {
+    echo "ERROR: \$1" | tee -a "\$TEMP_LOG" >&2
+}
+
+log "Starting launch script..."
+log "Script path: \$0"
+log "Working directory: \$(pwd)"
+log "User: \$(whoami)"
+log ""
+
+XDG_DATA_HOME=\${XDG_DATA_HOME:-\$HOME/.local/share}
+log "XDG_DATA_HOME: \$XDG_DATA_HOME"
+
+# Find PortMaster control folder
+log "Searching for PortMaster control folder..."
+if [ -d "/opt/system/Tools/PortMaster/" ]; then
+  controlfolder="/opt/system/Tools/PortMaster"
+  log "Found: /opt/system/Tools/PortMaster/"
+elif [ -d "/opt/tools/PortMaster/" ]; then
+  controlfolder="/opt/tools/PortMaster"
+  log "Found: /opt/tools/PortMaster/"
+elif [ -d "\$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="\$XDG_DATA_HOME/PortMaster"
+  log "Found: \$XDG_DATA_HOME/PortMaster/"
+else
+  controlfolder="/roms/ports/PortMaster"
+  log "Using default: /roms/ports/PortMaster/"
+fi
+
+if [ ! -d "\$controlfolder" ]; then
+    log_error "PortMaster control folder not found: \$controlfolder"
+    exit 1
+fi
+
+log "Control folder: \$controlfolder"
+log ""
+
+# Source control.txt
+if [ ! -f "\$controlfolder/control.txt" ]; then
+    log_error "control.txt not found at \$controlfolder/control.txt"
+    exit 1
+fi
+
+log "Sourcing control.txt..."
+source "\$controlfolder/control.txt"
+log "CFW_NAME: \${CFW_NAME:-not set}"
+log "DEVICE_NAME: \${DEVICE_NAME:-not set}"
+log "DEVICE_ARCH: \${DEVICE_ARCH:-not set}"
+log "directory: \${directory:-not set}"
+log ""
+
+get_controls
+log "Controls configured"
+
+# Source mod file if it exists
+MOD_FILE="\${controlfolder}/mod_\${CFW_NAME}.txt"
+if [ -f "\$MOD_FILE" ]; then
+    log "Sourcing mod file: \$MOD_FILE"
+    source "\$MOD_FILE"
+else
+    log "No mod file found: \$MOD_FILE"
+fi
+log ""
+
+# Dynamic path resolution - remove trailing slashes, handle leading slash
+log "Resolving game directory..."
+GAMEDIR="\${directory%/}/$GAME_NAME"
+log "Initial GAMEDIR: \$GAMEDIR"
+
+# Ensure path starts with /
+[[ "\$GAMEDIR" != /* ]] && GAMEDIR="/\$GAMEDIR"
+log "After leading slash check: \$GAMEDIR"
+
+# If not found in root, check in /ports/ subfolder
+if [ ! -d "\$GAMEDIR" ]; then
+    log "GAMEDIR not found, trying /ports/ subfolder..."
+    GAMEDIR="\${directory%/}/ports/$GAME_NAME"
+    [[ "\$GAMEDIR" != /* ]] && GAMEDIR="/\$GAMEDIR"
+    log "New GAMEDIR: \$GAMEDIR"
+fi
+
+if [ ! -d "\$GAMEDIR" ]; then
+    log_error "Game directory not found: \$GAMEDIR"
+    log "Searched paths:"
+    log "  1. \${directory%/}/$GAME_NAME"
+    log "  2. \${directory%/}/ports/$GAME_NAME"
+    exit 1
+fi
+
+log "Final GAMEDIR: \$GAMEDIR"
+log "GAMEDIR exists: \$(test -d "\$GAMEDIR" && echo 'yes' || echo 'no')"
+log ""
+
+# Change to game directory
+log "Changing to game directory..."
+cd "\$GAMEDIR" || {
+    log_error "Failed to cd to \$GAMEDIR"
+    exit 1
+}
+log "Current directory: \$(pwd)"
+log ""
+
+# Setup saves path
+log "Setting up saves directory..."
+export XDG_DATA_HOME="\$GAMEDIR/saves"
+export XDG_CONFIG_HOME="\$GAMEDIR/saves"
+log "XDG_DATA_HOME: \$XDG_DATA_HOME"
+log "XDG_CONFIG_HOME: \$XDG_CONFIG_HOME"
+
+mkdir -p "\$XDG_DATA_HOME" || log_error "Failed to create \$XDG_DATA_HOME"
+mkdir -p "\$XDG_CONFIG_HOME" || log_error "Failed to create \$XDG_CONFIG_HOME"
+log ""
+
+# Move temp log to final location and redirect all output
+FINAL_LOG="\$GAMEDIR/log.txt"
+log "Moving log to final location: \$FINAL_LOG"
+cat "\$TEMP_LOG" > "\$FINAL_LOG"
+rm -f "\$TEMP_LOG"
+
+# Redirect all output to log.txt for debugging
+exec > >(tee -a "\$FINAL_LOG") 2>&1
+
+log "=== Launch Process Starting ==="
+log "Date: \$(date)"
+log "GAMEDIR: \$GAMEDIR"
+log "Device: \${DEVICE_NAME:-unknown} (\${DEVICE_ARCH:-unknown})"
+log ""
+
+# Check for required files
+log "Checking required files..."
+LOVE_FILE="\$GAMEDIR/$GAME_NAME.love"
+GPTK_FILE="\$GAMEDIR/$GAME_NAME.gptk"
+
+if [ ! -f "\$LOVE_FILE" ]; then
+    log_error "$GAME_NAME.love not found at \$LOVE_FILE"
+    exit 1
+fi
+log "✓ Found: \$LOVE_FILE (\$(du -h "\$LOVE_FILE" | cut -f1))"
+
+if [ ! -f "\$GPTK_FILE" ]; then
+    log "⚠ Warning: $GAME_NAME.gptk not found at \$GPTK_FILE"
+else
+    log "✓ Found: \$GPTK_FILE"
+fi
+log ""
+
+# Search for LÖVE binary
+log "Searching for LÖVE binary..."
+LOVE_BIN=""
+
+# 1. Check PortMaster runtimes first (highest quality)
+log "Checking PortMaster runtimes..."
+for ver in "11.5" "11.4"; do
+    R_PATH="\$controlfolder/runtimes/love_\$ver/love.\$DEVICE_ARCH"
+    log "  Checking: \$R_PATH"
+    if [ -f "\$R_PATH" ]; then
+        LOVE_BIN="\$R_PATH"
+        export LD_LIBRARY_PATH="\$(dirname "\$R_PATH")/libs.\$DEVICE_ARCH:\$LD_LIBRARY_PATH"
+        log "  ✓ Found LÖVE \$ver at: \$LOVE_BIN"
+        log "  LD_LIBRARY_PATH: \$LD_LIBRARY_PATH"
+        break
+    else
+        log "  ✗ Not found"
+    fi
+done
+
+# 2. Check system paths fallback
+if [ -z "\$LOVE_BIN" ]; then
+    log "Checking system paths..."
+    for path in "/usr/bin/love" "/usr/local/bin/love" "/opt/love/bin/love"; do
+        log "  Checking: \$path"
+        if [ -f "\$path" ]; then
+            LOVE_BIN="\$path"
+            log "  ✓ Found at: \$LOVE_BIN"
+            break
+        else
+            log "  ✗ Not found"
+        fi
+    done
+fi
+
+if [ -z "\$LOVE_BIN" ]; then
+    log_error "LÖVE binary not found in runtimes or system paths!"
+    log "Searched locations:"
+    log "  - \$controlfolder/runtimes/love_11.5/love.\$DEVICE_ARCH"
+    log "  - \$controlfolder/runtimes/love_11.4/love.\$DEVICE_ARCH"
+    log "  - /usr/bin/love"
+    log "  - /usr/local/bin/love"
+    log "  - /opt/love/bin/love"
+    exit 1
+fi
+
+log "Using LÖVE binary: \$LOVE_BIN"
+if [ -x "\$LOVE_BIN" ]; then
+    log "✓ Binary is executable"
+else
+    log_error "Binary is not executable!"
+    exit 1
+fi
+
+# Check binary version if possible
+if command -v "\$LOVE_BIN" --version &>/dev/null; then
+    log "LÖVE version: \$("\$LOVE_BIN" --version 2>&1 | head -1)"
+fi
+log ""
+
+# We use the basename of LOVE_BIN for gptokeyb to watch
+LOVE_NAME=\$(basename "\$LOVE_BIN")
+log "LOVE_NAME for gptokeyb: \$LOVE_NAME"
+log ""
+
+# Check for gptokeyb
+log "Checking for gptokeyb..."
+if [ -z "\$GPTOKEYB" ]; then
+    log "⚠ GPTOKEYB not set, trying to find it..."
+    if [ -f "\$controlfolder/gptokeyb" ]; then
+        GPTOKEYB="\$controlfolder/gptokeyb"
+        log "Found: \$GPTOKEYB"
+    elif command -v gptokeyb &>/dev/null; then
+        GPTOKEYB=\$(command -v gptokeyb)
+        log "Found in PATH: \$GPTOKEYB"
+    else
+        log "⚠ gptokeyb not found, continuing without it"
+    fi
+fi
+
+# Launch game
+log "=== Launching Game ==="
+log "Command: \"\$LOVE_BIN\" \"\$LOVE_FILE\""
+log ""
+
+if [ -n "\$GPTOKEYB" ] && [ -f "\$GPTOKEYB" ] && [ -f "\$GPTK_FILE" ]; then
+    log "Starting gptokeyb..."
+    "\$GPTOKEYB" "\$LOVE_NAME" -c "\$GPTK_FILE" &
+    GPTOKEYB_PID=\$!
+    log "gptokeyb PID: \$GPTOKEYB_PID"
+    log ""
+fi
+
+if command -v pm_platform_helper &>/dev/null; then
+    log "Running pm_platform_helper..."
+    pm_platform_helper "\$LOVE_BIN"
+    log ""
+fi
+
+log "Executing LÖVE..."
+log "--- Game Output Below ---"
+log ""
+
+# Execute the game
+"\$LOVE_BIN" "\$LOVE_FILE"
+EXIT_CODE=\$?
+
+log ""
+log "--- Game Exited ---"
+log "Exit code: \$EXIT_CODE"
+log "Timestamp: \$(date)"
+
+# Cleanup after exit
+log "Cleaning up..."
+if [ -n "\$GPTOKEYB_PID" ]; then
+    kill "\$GPTOKEYB_PID" 2>/dev/null || true
+    log "Stopped gptokeyb"
+fi
+killall gptokeyb 2>/dev/null || true
+
+if command -v pm_finish &>/dev/null; then
+    pm_finish
+    log "Ran pm_finish"
+fi
+
+log "=== Launch Process Complete ==="
+exit \$EXIT_CODE
+LAUNCHER_EOF
+
+chmod +x "$BUILD_DIR/$GAME_NAME.sh"
+
+# 4. Create the Controller Mapping (.gptk)
+echo "[4/6] Creating controller mapping..."
+cat > "$BUILD_DIR/$GAME_NAME/$GAME_NAME.gptk" << 'EOF'
+back = m
+start = enter
+
+up = up
+down = down
+left = left
+right = right
+
+left_analog_up = up
+left_analog_down = down
+left_analog_left = left
+left_analog_right = right
+
+a = x
+b = z
+x = space
+y = c
+
+l1 = c
+r1 = x
+EOF
+
+# 5. Create PortMaster metadata (port.json)
+echo "[5/6] Creating port.json..."
+cat > "$BUILD_DIR/$GAME_NAME/port.json" << EOF
+{
+    "version": 1,
+    "name": "$GAME_NAME",
+    "items": ["$GAME_NAME.sh"],
+    "items_opt": [],
+    "attr": {
+        "title": "Pixel Raiders",
+        "desc": "Multiplayer pixel art game.",
+        "inst": "D-Pad to move. X/Y for Menu. Host on one device, Find on another!",
+        "genres": ["multiplayer", "puzzle"],
+        "porter": "Antigravity",
+        "runtime": "love-11.4"
+    }
+}
+EOF
+
+# 6. Create updater script (next to launcher, not inside game folder)
+echo "[6/6] Creating ${GAME_NAME}Updater.sh..."
+cat > "$BUILD_DIR/${GAME_NAME}Updater.sh" << UPDATE_EOF
+#!/bin/bash
+# ${GAME_NAME}Updater.sh - Updates Pixel Raiders from GitHub
+# Place this next to ${GAME_NAME}.sh in your ports folder
+#
+# Usage: Run from PortMaster menu or: ./${GAME_NAME}Updater.sh
+
+REPO="al5ina5/pixel-raiders"
+BRANCH="main"
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+GAME_DIR="\$SCRIPT_DIR/$GAME_NAME"
+
+echo "=== Pixel Raiders Updater ==="
+echo "Game directory: \$GAME_DIR"
+echo ""
+
+# Check game folder exists
+if [ ! -d "\$GAME_DIR" ]; then
+    echo "ERROR: $GAME_NAME folder not found at \$GAME_DIR"
+    echo "Make sure ${GAME_NAME}Updater.sh is in the same folder as $GAME_NAME/"
+    exit 1
+fi
+
+# Check for curl or wget
+if command -v curl &> /dev/null; then
+    DOWNLOADER="curl"
+elif command -v wget &> /dev/null; then
+    DOWNLOADER="wget"
+else
+    echo "ERROR: Neither curl nor wget found!"
+    exit 1
+fi
+
+echo "Using $DOWNLOADER for downloads..."
+echo ""
+
+# Download function
+download_file() {
+    local url="$1"
+    local dest="$2"
+    
+    echo "Downloading: $(basename "$dest")"
+    
+    if [ "$DOWNLOADER" = "curl" ]; then
+        curl -L -s -o "$dest" "$url"
+    else
+        wget -q -O "$dest" "$url"
+    fi
+    
+    if [ $? -eq 0 ] && [ -f "$dest" ] && [ -s "$dest" ]; then
+        echo "  OK"
+        return 0
+    else
+        echo "  FAILED"
+        return 1
+    fi
+}
+
+# Base URL for raw files
+BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/dist/portmaster"
+
+echo "Downloading updates..."
+echo ""
+
+# Backup current .love file
+if [ -f "\$GAME_DIR/$GAME_NAME.love" ]; then
+    cp "\$GAME_DIR/$GAME_NAME.love" "\$GAME_DIR/$GAME_NAME.love.backup"
+    echo "Backed up current $GAME_NAME.love"
+fi
+
+# Download new files
+download_file "\$BASE_URL/$GAME_NAME/$GAME_NAME.love" "\$GAME_DIR/$GAME_NAME.love"
+LOVE_OK=\$?
+
+download_file "\$BASE_URL/$GAME_NAME/$GAME_NAME.gptk" "\$GAME_DIR/$GAME_NAME.gptk"
+GPTK_OK=\$?
+
+download_file "\$BASE_URL/$GAME_NAME/port.json" "\$GAME_DIR/port.json"
+JSON_OK=\$?
+
+echo ""
+
+if [ \$LOVE_OK -eq 0 ]; then
+    # Remove backup on success
+    rm -f "\$GAME_DIR/$GAME_NAME.love.backup"
+    echo "=== Update complete! ==="
+    echo "Restart the game to use the new version."
+else
+    # Restore backup on failure
+    if [ -f "\$GAME_DIR/$GAME_NAME.love.backup" ]; then
+        mv "\$GAME_DIR/$GAME_NAME.love.backup" "\$GAME_DIR/$GAME_NAME.love"
+        echo "Update failed - restored previous version."
+    fi
+    echo "=== Update FAILED ==="
+    exit 1
+fi
+UPDATE_EOF
+
+chmod +x "$BUILD_DIR/${GAME_NAME}Updater.sh"
+
+echo ""
+echo "=== BUILD COMPLETE ==="
+echo ""
+echo "Output files:"
+echo "  $BUILD_DIR/$GAME_NAME.sh"
+echo "  $BUILD_DIR/${GAME_NAME}Updater.sh"
+echo "  $BUILD_DIR/$GAME_NAME/"
+echo "    - $GAME_NAME.love"
+echo "    - $GAME_NAME.gptk"
+echo "    - port.json"
+echo ""
+echo "To deploy, run: ./build/portmaster/deploy.sh"

@@ -375,7 +375,7 @@ function Menu:drawFindGame()
             end
             
             love.graphics.print(room.code or "?", self._offsetX + 40 * self._scale, y)
-            love.graphics.printf((room.playerCount or 0) .. "/4", self._offsetX, y, (GAME_WIDTH - 40) * self._scale, "right")
+            love.graphics.printf((room.players or room.playerCount or 0) .. "/" .. (room.maxPlayers or 10), self._offsetX, y, (GAME_WIDTH - 40) * self._scale, "right")
             
             y = y + 18 * self._scale
         end

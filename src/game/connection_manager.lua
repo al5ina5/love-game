@@ -15,7 +15,8 @@ function ConnectionManager.create()
         connectionTimeout = 10.0,
         heartbeatTimer = 0,
         heartbeatInterval = 30.0,
-        onlineClient = nil
+        onlineClient = nil,
+        hostSentJoin = false  -- Track if host has sent PLAYER_JOIN when paired
     }
 end
 
@@ -32,7 +33,7 @@ function ConnectionManager.becomeHost(game)
     end
 
     game.network = NetworkAdapter:createLAN(nil, game.network)
-    game.discovery:startAdvertising("Walking Together", 12345, 4)
+    game.discovery:startAdvertising("Pixel Raiders", 12345, 10)
     game.playerId = "host"
 end
 
@@ -180,13 +181,8 @@ function ConnectionManager.hostOnline(isPublic, game)
         game.network = NetworkAdapter:createRelay(relayClient)
         print("Connection: Network adapter created with relay client")
         
-        -- Host should send initial PLAYER_JOIN when paired (handled in relay_client.lua)
-        -- But also send it immediately so client knows about host
-        local Protocol = require('src.net.protocol')
-        local playerX = game.player and game.player.x or 400
-        local playerY = game.player and game.player.y or 300
-        relayClient:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "host", math.floor(playerX), math.floor(playerY)))
-        print("Connection: Host sent initial PLAYER_JOIN message at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ")")
+        -- Host will send PLAYER_JOIN when PAIRED is received (handled in relay_client.lua)
+        -- Don't send immediately - wait for client to connect and receive PAIRED
     else
         print("Connection: WARNING - Relay not connected, network adapter not created")
         -- Still set up basic state so room code is shown
@@ -196,11 +192,11 @@ function ConnectionManager.hostOnline(isPublic, game)
     game.playerId = "host"
     game.connectionManager.onlineClient = onlineClient -- Keep for heartbeat
     
-    -- Show waiting screen with room code
+    -- Store room code but hide menu so player can play immediately
     if game.menu then
         game.menu.onlineRoomCode = roomCode
-        game.menu.state = game.menu.STATE.WAITING
-        print("Connection: Menu state set to WAITING with room code: " .. roomCode)
+        game.menu:hide()  -- Hide menu so player can play alone until someone joins
+        print("Connection: Room created with code: " .. roomCode .. " (menu hidden, player can play)")
     end
     
     return true
@@ -258,14 +254,18 @@ function ConnectionManager.joinOnline(roomCode, game)
     local Protocol = require('src.net.protocol')
     local playerX = game.player and game.player.x or 400
     local playerY = game.player and game.player.y or 300
-    relayClient:send(Protocol.encode(Protocol.MSG.PLAYER_JOIN, "client", math.floor(playerX), math.floor(playerY)))
-    print("Connection: Client sent initial PLAYER_JOIN message at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ")")
+    local skin = game.player and game.player.spriteName or nil
+    local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, "client", math.floor(playerX), math.floor(playerY))
+    if skin then
+        encoded = encoded .. "|" .. skin
+    end
+    relayClient:send(encoded)
+    print("Connection: Client sent initial PLAYER_JOIN message at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ") with skin: " .. (skin or "none"))
     
-    -- Don't hide menu yet - wait for host's PLAYER_JOIN message
-    -- Menu will be hidden when player_joined message is received
+    -- Hide menu so client can play immediately
     if game.menu then
-        -- Keep menu visible but in a connecting state
-        print("Connection: Client waiting for host to send PLAYER_JOIN")
+        game.menu:hide()  -- Hide menu so player can play immediately
+        print("Connection: Client connected, menu hidden, player can play")
     end
     
     return true
@@ -310,6 +310,25 @@ function ConnectionManager.updateOnline(dt, game)
         if cm.heartbeatTimer >= cm.heartbeatInterval then
             cm.onlineClient:heartbeat()
             cm.heartbeatTimer = 0
+        end
+    end
+    
+    -- Host: Send PLAYER_JOIN when relay becomes paired (client connected)
+    if game.network and game.network.type == NetworkAdapter.TYPE.RELAY and game.isHost then
+        local relayClient = game.network.client
+        if relayClient and relayClient.paired and not cm.hostSentJoin then
+            -- Send PLAYER_JOIN with actual player position and skin
+            local Protocol = require('src.net.protocol')
+            local playerX = game.player and game.player.x or 400
+            local playerY = game.player and game.player.y or 300
+            local skin = game.player and game.player.spriteName or nil
+            local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, "host", math.floor(playerX), math.floor(playerY))
+            if skin then
+                encoded = encoded .. "|" .. skin
+            end
+            relayClient:send(encoded)
+            print("Connection: Host sent PLAYER_JOIN when paired at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ") with skin: " .. (skin or "none"))
+            cm.hostSentJoin = true
         end
     end
 end

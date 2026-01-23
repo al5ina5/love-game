@@ -23,7 +23,21 @@ function Player:new(x, y)
     self.frameTime = 0.15  -- seconds per frame
     
     -- Load sprite sheet (16x16 per frame, 4 frames horizontal)
-    self.spriteSheet = love.graphics.newImage("assets/img/sprites/Merfolk Mystic/MerfolkMystic.png")
+    -- Randomly select from available human sprites
+    local humanSprites = {
+        "Adventurous Adolescent",
+        "Boisterous Youth",
+        "Elf Bladedancer",
+        "Elf Enchanter",
+        "Elf Lord",
+    }
+    -- Use a combination of time and random calls to ensure different selection
+    -- The seed should already be set in Game:load(), but add some variation
+    local randomIndex = math.random(#humanSprites)
+    local spriteName = humanSprites[randomIndex]
+    local spritePath = "assets/img/sprites/humans/" .. spriteName .. "/" .. spriteName:gsub(" ", "") .. ".png"
+    self.spriteName = spriteName  -- Store for network sync
+    self.spriteSheet = love.graphics.newImage(spritePath)
     self.frameWidth = 16
     self.frameHeight = 16
     
@@ -48,23 +62,17 @@ function Player:new(x, y)
 end
 
 function Player:update(dt)
-    local dx, dy = 0, 0
+    -- Get movement vector from keyboard or gamepad
+    local dx, dy = Input:getMovementVector()
     
-    -- Read input (WASD / arrows)
-    if Input:isDown("left") or Input:isDown("a") then dx = -1 end
-    if Input:isDown("right") or Input:isDown("d") then dx = 1 end
-    if Input:isDown("up") or Input:isDown("w") then dy = -1 end
-    if Input:isDown("down") or Input:isDown("s") then dy = 1 end
-    
-    -- Normalize diagonal movement
-    if dx ~= 0 and dy ~= 0 then
-        dx = dx * 0.7071
-        dy = dy * 0.7071
-    end
+    -- Check for sprint (shift key or gamepad trigger/shoulder)
+    local isSprinting = Input:isSprintDown()
+    local sprintMultiplier = isSprinting and 1.5 or 1.0
+    local currentSpeed = self.speed * sprintMultiplier
     
     -- Update position
-    self.x = self.x + dx * self.speed * dt
-    self.y = self.y + dy * self.speed * dt
+    self.x = self.x + dx * currentSpeed * dt
+    self.y = self.y + dy * currentSpeed * dt
     
     -- Update facing direction
     self.moving = (dx ~= 0 or dy ~= 0)
@@ -74,11 +82,12 @@ function Player:update(dt)
     elseif dy > 0 then self.direction = "down"
     end
     
-    -- Animation
+    -- Animation with faster frame time when sprinting
+    local currentFrameTime = isSprinting and (self.frameTime * 0.7) or self.frameTime
     if self.moving then
         self.animTimer = self.animTimer + dt
-        if self.animTimer >= self.frameTime then
-            self.animTimer = self.animTimer - self.frameTime
+        if self.animTimer >= currentFrameTime then
+            self.animTimer = self.animTimer - currentFrameTime
             self.animFrame = (self.animFrame % self.frameCount) + 1
         end
     else
@@ -89,9 +98,13 @@ function Player:update(dt)
 end
 
 function Player:draw()
+    -- Round positions to pixels to prevent blur
+    local drawX = math.floor(self.x + 0.5)
+    local drawY = math.floor(self.y + 0.5)
+    
     -- Draw shadow
     love.graphics.setColor(0, 0, 0, 0.3)
-    love.graphics.ellipse("fill", self.x + 8, self.y + 14, 6, 3)
+    love.graphics.ellipse("fill", drawX + 8, drawY + 14, 6, 3)
     
     -- Draw sprite
     love.graphics.setColor(1, 1, 1)
@@ -107,8 +120,8 @@ function Player:draw()
     love.graphics.draw(
         self.spriteSheet,
         self.quads[self.animFrame],
-        self.x + offsetX,
-        self.y,
+        drawX + offsetX,
+        drawY,
         0,  -- rotation
         scaleX, 1  -- scale
     )

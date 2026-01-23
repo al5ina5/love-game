@@ -4,7 +4,7 @@
 
 set -e
 
-GAME_NAME="WalkingTogether"
+GAME_NAME="PIXELRAIDERS"
 BUILD_DIR="dist"
 
 echo "=== Building PortMaster Package for $GAME_NAME ==="
@@ -18,13 +18,13 @@ echo "Creating $GAME_NAME.love..."
 # Zip everything in current dir into the .love file
 # Excluding build files and hidden git/system files
 zip -9 -r "$BUILD_DIR/$GAME_NAME/$GAME_NAME.love" . \
-    -x "*.git*" -x "dist/*" -x "build_portmaster.sh" -x "*.DS_Store" -x "raw_udp_test.lua" -x "debug/*"
+    -x "*.git*" -x "dist/*" -x "server/*" -x "build_portmaster.sh" -x "*.DS_Store" -x "raw_udp_test.lua" -x "debug/*"
 
 # 3. Create the Launcher (.sh)
 echo "Creating $GAME_NAME.sh..."
-cat > "$BUILD_DIR/$GAME_NAME.sh" << 'EOF'
+cat > "$BUILD_DIR/$GAME_NAME.sh" << EOF
 #!/bin/bash
-# PortMaster Launcher for Walking Together
+# PortMaster Launcher for Pixel Raiders
 
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
@@ -44,12 +44,12 @@ get_controls
 [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
 # Dynamic path resolution. We remove any trailing slashes to avoid // issues.
-CLEAN_DIR=$(echo "/$directory" | sed 's:/*$::')
-GAMEDIR="$CLEAN_DIR/WalkingTogether"
+CLEAN_DIR=\$(echo "/\$directory" | sed 's:/*\$::')
+GAMEDIR="\$CLEAN_DIR/$GAME_NAME"
 
 # If not found in root, check in /ports/ subfolder
-if [ ! -d "$GAMEDIR" ]; then
-    GAMEDIR="$CLEAN_DIR/ports/WalkingTogether"
+if [ ! -d "\$GAMEDIR" ]; then
+    GAMEDIR="\$CLEAN_DIR/ports/$GAME_NAME"
 fi
 
 cd "$GAMEDIR"
@@ -61,8 +61,8 @@ mkdir -p "$XDG_DATA_HOME"
 mkdir -p "$XDG_CONFIG_HOME"
 
 # Redirect all output to log.txt for debugging
-exec > >(tee "$GAMEDIR/log.txt") 2>&1
-echo "--- Starting Walking Together ---"
+exec > >(tee "\$GAMEDIR/log.txt") 2>&1
+echo "--- Starting Pixel Raiders ---"
 echo "Date: $(date)"
 echo "GAMEDIR: $GAMEDIR"
 echo "Device: $DEVICE_NAME ($DEVICE_ARCH)"
@@ -99,9 +99,9 @@ echo "Using LÖVE binary: $LOVE_BIN"
 # We use the basename of LOVE_BIN for gptokeyb to watch
 LOVE_NAME=$(basename "$LOVE_BIN")
 
-$GPTOKEYB "$LOVE_NAME" -c "$GAMEDIR/WalkingTogether.gptk" &
-pm_platform_helper "$LOVE_BIN"
-"$LOVE_BIN" "$GAMEDIR/WalkingTogether.love"
+\$GPTOKEYB "\$LOVE_NAME" -c "\$GAMEDIR/$GAME_NAME.gptk" &
+pm_platform_helper "\$LOVE_BIN"
+"\$LOVE_BIN" "\$GAMEDIR/$GAME_NAME.love"
 
 # Cleanup after exit
 killall gptokeyb
@@ -112,7 +112,7 @@ chmod +x "$BUILD_DIR/$GAME_NAME.sh"
 
 # 4. Create the Controller Mapping (.gptk)
 echo "Creating $GAME_NAME.gptk..."
-cat > "$BUILD_DIR/$GAME_NAME/WalkingTogether.gptk" << 'EOF'
+cat > "$BUILD_DIR/$GAME_NAME/$GAME_NAME.gptk" << 'EOF'
 back = esc
 start = enter
 
@@ -144,7 +144,7 @@ cat > "$BUILD_DIR/$GAME_NAME/port.json" << EOF
     "items": ["$GAME_NAME.sh"],
     "items_opt": [],
     "attr": {
-        "title": "Walking Together",
+        "title": "Pixel Raiders",
         "desc": "Multiplayer walking simulator boilerplate.",
         "inst": "D-Pad to move. X/Y for Menu. Host on one device, Find on another!",
         "genres": ["multiplayer", "sim"],
@@ -161,7 +161,7 @@ echo "1. $BUILD_DIR/$GAME_NAME.sh        <-- Move to /roms/ports/"
 echo "2. $BUILD_DIR/$GAME_NAME/          <-- Move this whole FOLDER to /roms/ports/"
 echo ""
 echo "Installation on SD Card should look like this:"
-echo "/roms/ports/WalkingTogether.sh"
-echo "/roms/ports/WalkingTogether/WalkingTogether.love"
-echo "/roms/ports/WalkingTogether/WalkingTogether.gptk"
-echo "/roms/ports/WalkingTogether/port.json"
+echo "/roms/ports/$GAME_NAME.sh"
+echo "/roms/ports/$GAME_NAME/$GAME_NAME.love"
+echo "/roms/ports/$GAME_NAME/$GAME_NAME.gptk"
+echo "/roms/ports/$GAME_NAME/port.json"

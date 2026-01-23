@@ -43,6 +43,9 @@ function OnlineClient:new()
     self.apiUrl = Constants.API_BASE_URL
     self.httpMethod = hasLuaSec and "luasec" or "simple"
     
+    print("OnlineClient: Initialized with API URL: " .. self.apiUrl)
+    print("OnlineClient: Using HTTP method: " .. self.httpMethod)
+    
     return self
 end
 

@@ -26,7 +26,7 @@ function RelayClient:connect(roomCode, playerId)
     self.roomCode = roomCode:upper()
     self.playerId = playerId -- "host" or "client"
     
-    print("RelayClient: Connecting to " .. Constants.RELAY_HOST .. ":" .. Constants.RELAY_PORT)
+    print("RelayClient: Connecting to " .. Constants.RELAY_HOST .. ":" .. Constants.RELAY_PORT .. " (room: " .. self.roomCode .. ", player: " .. playerId .. ")")
     
     -- Resolve hostname to IP to avoid some luasocket issues with DNS
     local ip = socket.dns.toip(Constants.RELAY_HOST)
@@ -114,17 +114,26 @@ function RelayClient:poll()
     end
     
     local combinedData = self.buffer .. (data or partial or "")
-    self.buffer = ""
+    
+    -- Find the last complete line (ending with newline)
+    local lastNewline = combinedData:match(".*\n()")
+    if lastNewline then
+        -- We have at least one complete line
+        self.buffer = combinedData:sub(lastNewline)  -- Keep incomplete part in buffer
+        combinedData = combinedData:sub(1, lastNewline - 1)  -- Process complete lines
+    else
+        -- No complete line yet, keep everything in buffer
+        self.buffer = combinedData
+        return messages  -- No messages to process yet
+    end
     
     -- Split by newline and process messages
-    for line in (combinedData .. "\n"):gmatch("(.-)\n") do
+    for line in combinedData:gmatch("(.-)\n") do
         if line == "PAIRED" then
             print("RelayClient: Opponent connected to relay!")
             self.paired = true
-            -- When paired, both players should send their initial PLAYER_JOIN message
-            -- This is handled in connection_manager, so we don't need to send it here again
-            -- The connection_manager sends PLAYER_JOIN with actual player position
-            -- Client already sent its join message in connection_manager, so we're good
+            -- When paired, connection_manager will send PLAYER_JOIN with actual position
+            -- Client already sent its PLAYER_JOIN in connection_manager
         elseif line == "OPPONENT_LEFT" then
             print("RelayClient: Opponent left the room!")
             self.paired = false
@@ -135,10 +144,12 @@ function RelayClient:poll()
             print("RelayClient: Server error: " .. errorMsg)
             -- Could generate an error message for the game to handle
         elseif line ~= "" then
+            print("RelayClient: Received raw line: " .. line:sub(1, 100))  -- Log first 100 chars
             local msg = Protocol.decode(line)
             if msg then
+                print("RelayClient: Decoded message - type: " .. (msg.type or "nil") .. ", id: " .. (msg.id or "nil"))
                 if msg.id == self.playerId then
-                    print("RelayClient: Ignoring our own message: " .. (msg.type or "unknown"))
+                    print("RelayClient: Ignoring our own message: " .. (msg.type or "unknown") .. " from " .. (msg.id or "?"))
                 else
                     -- Translate protocol types to match LAN behavior
                     if msg.type == Protocol.MSG.PLAYER_JOIN then 
@@ -146,11 +157,20 @@ function RelayClient:poll()
                         print("RelayClient: Decoded PLAYER_JOIN: id=" .. (msg.id or "?") .. ", x=" .. (msg.x or "?") .. ", y=" .. (msg.y or "?"))
                     elseif msg.type == Protocol.MSG.PLAYER_LEAVE then 
                         msg.type = "player_left"
+                        print("RelayClient: Decoded PLAYER_LEAVE: id=" .. (msg.id or "?"))
                     elseif msg.type == Protocol.MSG.PLAYER_MOVE then
                         msg.type = "player_moved"
+                        print("RelayClient: Received PLAYER_MOVE from " .. (msg.id or "?") .. " at (" .. (msg.x or "?") .. ", " .. (msg.y or "?") .. ")")
+                    elseif msg.type == Protocol.MSG.PET_MOVE then
+                        msg.type = "pet_moved"
+                        print("RelayClient: Received PET_MOVE for " .. (msg.id or "?") .. " at (" .. (msg.x or "?") .. ", " .. (msg.y or "?") .. ")")
+                    else
+                        print("RelayClient: Unknown message type: " .. (msg.type or "nil"))
                     end
                     table.insert(messages, msg)
                 end
+            else
+                print("RelayClient: Failed to decode message from line: " .. line:sub(1, 100))
             end
         end
     end
@@ -170,8 +190,34 @@ function RelayClient:send(data)
 end
 
 -- Compatible interface with ENet client
-function RelayClient:sendPosition(x, y, direction)
-    return self:send(Protocol.encode(Protocol.MSG.PLAYER_MOVE, self.playerId or "?", math.floor(x), math.floor(y), direction or "down"))
+function RelayClient:sendPosition(x, y, direction, skin)
+    if not self.connected then
+        print("RelayClient: sendPosition called but not connected!")
+        return false
+    end
+    if not self.paired then
+        print("RelayClient: sendPosition called but not paired yet!")
+        -- Still send, but log it
+    end
+    local encoded = Protocol.encode(Protocol.MSG.PLAYER_MOVE, self.playerId or "?", math.floor(x), math.floor(y), direction or "down")
+    if skin then
+        encoded = encoded .. "|" .. skin
+    end
+    print("RelayClient: Sending position - playerId: " .. (self.playerId or "?") .. ", x: " .. math.floor(x) .. ", y: " .. math.floor(y) .. ", dir: " .. (direction or "down") .. ", skin: " .. (skin or "none"))
+    local success = self:send(encoded)
+    if not success then
+        print("RelayClient: Failed to send position update!")
+    end
+    return success
+end
+
+function RelayClient:sendPetPosition(playerId, x, y, monster)
+    if not self.connected then return false end
+    local encoded = Protocol.encode(Protocol.MSG.PET_MOVE, playerId or self.playerId or "?", math.floor(x), math.floor(y))
+    if monster then
+        encoded = encoded .. "|" .. monster
+    end
+    return self:send(encoded)
 end
 
 function RelayClient:sendMessage(msg)

@@ -69,9 +69,13 @@ function NPC:getDialogue()
 end
 
 function NPC:draw()
+    -- Round positions to pixels to prevent blur
+    local drawX = math.floor(self.x + 0.5)
+    local drawY = math.floor(self.y + 0.5)
+    
     -- Draw shadow
     love.graphics.setColor(0, 0, 0, 0.3)
-    love.graphics.ellipse("fill", self.x + 8, self.y + 14, 6, 3)
+    love.graphics.ellipse("fill", drawX + 8, drawY + 14, 6, 3)
     
     -- Draw sprite
     love.graphics.setColor(1, 1, 1)
@@ -87,8 +91,8 @@ function NPC:draw()
     love.graphics.draw(
         self.spriteSheet,
         self.quads[self.animFrame],
-        self.x + offsetX,
-        self.y,
+        drawX + offsetX,
+        drawY,
         0,  -- rotation
         scaleX, 1  -- scale
     )

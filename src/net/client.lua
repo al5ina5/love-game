@@ -53,7 +53,7 @@ function Client:disconnect()
     print("Disconnected")
 end
 
-function Client:sendPosition(x, y, direction)
+function Client:sendPosition(x, y, direction, skin)
     if not self.connected or not self.server then return end
     
     local now = love.timer.getTime()
@@ -67,7 +67,24 @@ function Client:sendPosition(x, y, direction)
         math.floor(y),
         direction or "down"
     )
+    if skin then
+        data = data .. "|" .. skin
+    end
     
+    self.server:send(data, 0, "unreliable")
+end
+
+function Client:sendPetPosition(playerId, x, y, monster)
+    if not self.connected or not self.server then return end
+    local data = Protocol.encode(
+        Protocol.MSG.PET_MOVE,
+        playerId or self.playerId or "?",
+        math.floor(x),
+        math.floor(y)
+    )
+    if monster then
+        data = data .. "|" .. monster
+    end
     self.server:send(data, 0, "unreliable")
 end
 
@@ -99,6 +116,8 @@ function Client:poll()
                     msg.type = "player_moved"
                 elseif msg.type == Protocol.MSG.PLAYER_LEAVE then
                     msg.type = "player_left"
+                elseif msg.type == Protocol.MSG.PET_MOVE then
+                    msg.type = "pet_moved"
                 end
                 table.insert(messages, msg)
             end

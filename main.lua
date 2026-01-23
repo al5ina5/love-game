@@ -1,5 +1,5 @@
 -- main.lua
--- Walking simulator with sprite animation
+-- Pixel Raiders game
 
 local Game = require('src.game')
 
@@ -8,7 +8,7 @@ function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
     
     -- Set window title
-    love.window.setTitle("Walking Together")
+    love.window.setTitle("Pixel Raiders")
     
     -- Initialize game
     Game:load()
@@ -23,9 +23,11 @@ function love.draw()
     local screen_width = love.graphics.getWidth()
     local screen_height = love.graphics.getHeight()
     
-    -- Target resolution is 320x180 (16:9 pixel art style, like Stardew Valley / Enter the Gungeon)
-    -- With 16x16 sprites, this gives characters ~9% of screen height - nice and prominent
-    local target_w, target_h = 320, 180
+    -- Calculate dynamic viewport size based on screen size
+    -- Smaller screens get a smaller viewport (more zoomed in) for better visibility
+    local Camera = require('src.systems.camera')
+    local target_w, target_h = Camera.calculateViewport(screen_width, screen_height)
+    
     local scale = math.min(screen_width / target_w, screen_height / target_h)
     
     -- Center and scale the game world (pixel art at low res)
@@ -47,7 +49,14 @@ function love.keypressed(key)
 end
 
 function love.gamepadpressed(joystick, button)
+    local Input = require('src.systems.input')
+    Input:gamepadPressed(button)
     Game:gamepadpressed(button)
+end
+
+function love.gamepadreleased(joystick, button)
+    local Input = require('src.systems.input')
+    Input:gamepadReleased(button)
 end
 
 function love.mousepressed(x, y, button)

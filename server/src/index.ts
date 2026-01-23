@@ -63,7 +63,7 @@ app.post('/api/create-room', (req: Request, res: Response) => {
     hostName,
     isPublic: !!isPublic,
     players: 1,
-    maxPlayers: 2,
+    maxPlayers: 10,
     createdAt: Date.now(),
     lastHeartbeat: Date.now(),
     gameStarted: false,
@@ -147,13 +147,15 @@ const tcpServer = net.createServer((socket: net.Socket) => {
           roomSockets.set(code, roomData);
           console.log(`[TCP] Player joined room ${code} (1st player)`);
         } else {
-          if (roomData.sockets.length < 2) {
+          if (roomData.sockets.length < 10) {
             roomData.sockets.push(socket);
             if (room) room.players = roomData.sockets.length;
-            console.log(`[TCP] Player joined room ${code} (2nd player)`);
+            console.log(`[TCP] Player joined room ${code} (${roomData.sockets.length} players)`);
             
-            // Notify both players they are paired
-            roomData.sockets.forEach(s => s.write('PAIRED\n'));
+            // Notify all players they are paired when 2+ players are present
+            if (roomData.sockets.length >= 2) {
+              roomData.sockets.forEach(s => s.write('PAIRED\n'));
+            }
           } else {
             socket.write('ERROR:Room full\n');
             socket.end();
@@ -175,10 +177,18 @@ const tcpServer = net.createServer((socket: net.Socket) => {
       if (currentRoomCode) {
         const roomData = roomSockets.get(currentRoomCode);
         if (roomData) {
+          console.log(`[TCP] Forwarding message in room ${currentRoomCode}: ${line.substring(0, 50)}`);
           roomData.sockets.forEach(s => {
-            if (s !== socket) s.write(line + '\n');
+            if (s !== socket) {
+              s.write(line + '\n');
+              console.log(`[TCP] Sent to other player in room ${currentRoomCode}`);
+            }
           });
+        } else {
+          console.log(`[TCP] WARNING: No room data for ${currentRoomCode}`);
         }
+      } else {
+        console.log(`[TCP] WARNING: Attempted to forward message but no currentRoomCode`);
       }
     }
   });
