@@ -54,21 +54,28 @@ function Loading.complete(game)
         local isNotConnected = not game.network
         
         if isLANHost or isNotConnected then
+            -- For local games, create NPCs and animals locally
             game.loadingMessage = "Creating NPCs..."
             game.loadingProgress = 0.5
             game:createNPCs()
-            
+
             game.loadingMessage = "Creating animals..."
             game.loadingProgress = 0.65
             game:createAnimalGroups()
         else
+            -- For networked games, NPCs and animals come from server state
             game.loadingMessage = "Waiting for server..."
             game.loadingProgress = 0.65
         end
         
         game.loadingMessage = "Finalizing..."
         game.loadingProgress = 0.8
-        
+
+        -- Generate roads connecting key locations
+        game.loadingMessage = "Building roads..."
+        game.loadingProgress = 0.85
+        game:generateWorldRoads()
+
         game.loadingMessage = "Connecting..."
         game.loadingProgress = 0.9
         

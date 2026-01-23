@@ -10,6 +10,7 @@ Protocol.MSG = {
     PLAYER_MOVE = "move",
     PET_MOVE = "pet_move",
     ROCKS_DATA = "rocks",
+    ROADS_DATA = "roads",  -- Road tile data
     NPC_DATA = "npcs",  -- NPC positions and data
     ANIMALS_DATA = "animals",  -- Animal positions and data
     CYCLE_TIME = "cycle",  -- Cycle time update from server
@@ -22,6 +23,8 @@ Protocol.MSG = {
     EVENT_BOON_STOLEN = "stolen",  -- Boon stolen event
     EVENT_CHEST_OPENED = "chest",  -- Chest opened event
     EVENT_PROJECTILE = "proj",  -- Projectile event
+    PING = "ping",  -- Ping request
+    PONG = "pong",  -- Ping response
 }
 
 -- Serialize: type|field1|field2|...
@@ -81,7 +84,24 @@ function Protocol.decode(data)
                 })
             end
         end
-        
+
+    elseif msgType == Protocol.MSG.ROADS_DATA then
+        -- Format: roads|count|x1|y1|roadType1|material1|width1|x2|y2|roadType2|material2|width2|...
+        msg.count = tonumber(parts[2]) or 0
+        msg.roads = {}
+        for i = 1, msg.count do
+            local idx = (i - 1) * 5 + 3  -- 5 values per road tile: x, y, roadType, material, width
+            if parts[idx] and parts[idx + 1] and parts[idx + 2] then
+                table.insert(msg.roads, {
+                    x = tonumber(parts[idx]) or 0,
+                    y = tonumber(parts[idx + 1]) or 0,
+                    roadType = tonumber(parts[idx + 2]) or 1,
+                    material = parts[idx + 3] or "dirt",
+                    width = tonumber(parts[idx + 4]) or 1
+                })
+            end
+        end
+
     elseif msgType == Protocol.MSG.NPC_DATA then
         -- Format: npcs|count|x1|y1|spritePath1|name1|dialogue1|x2|y2|spritePath2|name2|dialogue2|...
         -- Dialogue is JSON encoded
@@ -185,6 +205,14 @@ function Protocol.decode(data)
         msg.id = parts[2]
         msg.zoneX = tonumber(parts[3]) or 0
         msg.zoneY = tonumber(parts[4]) or 0
+
+    elseif msgType == Protocol.MSG.PING then
+        -- Format: ping|timestamp
+        msg.timestamp = tonumber(parts[2]) or love.timer.getTime()
+
+    elseif msgType == Protocol.MSG.PONG then
+        -- Format: pong|timestamp
+        msg.timestamp = tonumber(parts[2]) or 0
     end
     
     return msg

@@ -109,7 +109,16 @@ end
 -- Get movement vector from arrow keys, WASD, or gamepad
 function Input:getMovementVector()
     local dx, dy = 0, 0
-    
+
+    -- Debug: Check if any movement keys are pressed
+    local anyPressed = love.keyboard.isDown("left") or love.keyboard.isDown("right") or
+                      love.keyboard.isDown("up") or love.keyboard.isDown("down") or
+                      love.keyboard.isDown("a") or love.keyboard.isDown("d") or
+                      love.keyboard.isDown("w") or love.keyboard.isDown("s")
+    if anyPressed then
+        print("Input: Movement keys detected")
+    end
+
     -- Keyboard support
     if self:isDown("left") or self:isDown("a") then dx = dx - 1 end
     if self:isDown("right") or self:isDown("d") then dx = dx + 1 end

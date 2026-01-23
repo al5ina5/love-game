@@ -104,6 +104,7 @@ local custom_relay_port = env_vars["RELAY_PORT"]
 if custom_api_url then
     -- Use custom API URLs from .env file
     Constants.API_BASE_URL = custom_api_url
+    Constants.RELAY_HTTP = custom_api_url
     Constants.RELAY_HOST = custom_relay_host or "localhost"
     Constants.RELAY_PORT = tonumber(custom_relay_port) or 12346
     print("========================================")
@@ -113,6 +114,7 @@ if custom_api_url then
     print("========================================")
 elseif USE_LOCAL_API then
     Constants.API_BASE_URL = "http://localhost:3000"
+    Constants.RELAY_HTTP = "http://localhost:3000"
     Constants.RELAY_HOST = "localhost"
     Constants.RELAY_PORT = 12346
     print("========================================")
@@ -122,6 +124,7 @@ elseif USE_LOCAL_API then
     print("========================================")
 else
     Constants.API_BASE_URL = "https://love-game-production.up.railway.app"
+    Constants.RELAY_HTTP = "https://love-game-production.up.railway.app"
     -- TCP Relay server for real-time communication
     -- Railway TCP Proxy: ballast.proxy.rlwy.net:16563
     Constants.RELAY_HOST = "ballast.proxy.rlwy.net"
@@ -138,6 +141,75 @@ end
 Constants.ENABLE_DESATURATION_EFFECT = false
 
 -- Dev mode: show debug visuals (e.g. faint lines from player to NPCs for distance)
-Constants.DEV_MODE = true
+Constants.DEV_MODE = false
+
+-- Temporarily disable chest interactions
+Constants.DISABLE_CHESTS = true
+
+-- Miyoo device detection and optimization
+Constants.MIYOO_DEVICE = false
+
+-- Try to detect Miyoo device based on various indicators
+local function detectMiyoo()
+    -- Check for Miyoo-specific environment variables
+    if os.getenv("MIYOO") or os.getenv("MIYOO_DEVICE") then
+        return true
+    end
+
+    -- Check for Miyoo-specific screen resolution (320x240 is common)
+    if love and love.graphics then
+        pcall(function()
+            local width = love.graphics.getWidth()
+            local height = love.graphics.getHeight()
+            if width == 320 and height == 240 then
+                return true
+            end
+        end)
+    end
+
+    -- Check for Miyoo-specific CPU/memory constraints
+    -- This is a heuristic - could be enhanced with more specific detection
+    return false
+end
+
+-- Detect Miyoo on startup
+Constants.MIYOO_DEVICE = detectMiyoo()
+
+-- Miyoo-specific performance tuning
+if Constants.MIYOO_DEVICE then
+    print("Constants: Detected Miyoo device - applying optimizations")
+
+    -- More aggressive prediction settings for higher latency
+    Constants.MIYOO_PREDICTION_CORRECTION_SPEED = 3.0  -- Faster correction
+    Constants.MIYOO_MAX_PREDICTION_ERROR = 75  -- Allow more prediction error
+    Constants.MIYOO_INTERPOLATION_SPEED = 6  -- Slightly faster interpolation
+
+    -- Network rate adjustments for Miyoo WiFi
+    Constants.MIYOO_BASE_SEND_RATE = 1/20  -- Conservative base rate
+    Constants.MIYOO_MAX_SEND_RATE = 1/40   -- Lower max rate
+    Constants.MIYOO_MIN_SEND_RATE = 1/8    -- Higher min rate for stability
+
+    -- Remote player interpolation tuning
+    Constants.MIYOO_REMOTE_LERP_SPEED = 6
+    Constants.MIYOO_MAX_EXTRAPOLATION_TIME = 0.3  -- Shorter extrapolation
+
+else
+    -- Default settings for other devices
+    Constants.MIYOO_PREDICTION_CORRECTION_SPEED = 5.0
+    Constants.MIYOO_MAX_PREDICTION_ERROR = 50
+    Constants.MIYOO_INTERPOLATION_SPEED = 8
+
+    Constants.MIYOO_BASE_SEND_RATE = 1/30
+    Constants.MIYOO_MAX_SEND_RATE = 1/60
+    Constants.MIYOO_MIN_SEND_RATE = 1/10
+
+    Constants.MIYOO_REMOTE_LERP_SPEED = 8
+    Constants.MIYOO_MAX_EXTRAPOLATION_TIME = 0.5
+
+    -- Miyoo performance optimizations
+    Constants.MIYOO_NETWORK_POLL_RATE = 1/20  -- 20Hz network polling for Miyoo
+    Constants.MIYOO_TARGET_FPS = 60
+    Constants.MIYOO_FRAME_SLEEP_ENABLED = true
+end
 
 return Constants

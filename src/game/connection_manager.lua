@@ -37,13 +37,8 @@ function ConnectionManager.becomeHost(game)
     game.discovery:startAdvertising("Pixel Raiders", 12345, 10)
     game.playerId = "host"
     
-    -- Create NPCs and animals if not already created (host generates world)
-    if (#game.npcs or 0) == 0 then
-        game:createNPCs()
-    end
-    if (#game.animals or 0) == 0 then
-        game:createAnimalGroups()
-    end
+    -- For Boon Snatch mode, NPCs and animals are server-authoritative and come from server state
+    -- The server creates them when initialized
 end
 
 function ConnectionManager.stopHosting(game)
@@ -200,6 +195,8 @@ function ConnectionManager.hostOnline(isPublic, game)
             if game.player then
                 localServer.serverLogic:addPlayer("host", game.player.x, game.player.y)
                 localServer.serverLogic:spawnInitialChests(10)
+                localServer.serverLogic:spawnNPCs()
+                localServer.serverLogic:spawnAnimals()
                 print("Connection: Created local serverLogic for relay host")
             end
         else

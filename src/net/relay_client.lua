@@ -18,7 +18,23 @@ function RelayClient:new()
     self.playerId = nil
     self.paired = false -- True when opponent is also connected to relay
     self.buffer = "" -- For handling partial TCP packets
-    
+
+    -- Adaptive send rate limiting (Miyoo-optimized for relay client)
+    self.lastSendTime = 0
+    self.baseSendRate = Constants.MIYOO_BASE_SEND_RATE  -- Miyoo-tuned base rate
+    self.minSendRate = Constants.MIYOO_MIN_SEND_RATE   -- Min rate: conservative for poor connections
+    self.maxSendRate = Constants.MIYOO_MAX_SEND_RATE   -- Max rate: for excellent connections
+    self.sendRate = self.baseSendRate
+
+    -- Connection quality tracking
+    self.pingHistory = {}
+    self.maxPingSamples = 10
+    self.averagePing = 100  -- Initial estimate in ms
+    self.connectionQuality = 1.0  -- 0.0 to 1.0 (higher is better)
+    self.lastPingTime = 0
+    self.pendingPing = nil  -- {timestamp, sent_time}
+    self.lastPacketSentTime = 0  -- Track when we last sent any packet
+
     return self
 end
 
@@ -91,8 +107,23 @@ end
 
 function RelayClient:poll()
     if not self.connected or not self.tcp then return {} end
-    
+
     local messages = {}
+
+    -- Send ping periodically (both TCP and HTTP for comprehensive measurement)
+    local now = love.timer.getTime()
+    if now - self.lastPingTime > 1.0 and not self.pendingPing then  -- Ping every 1 second
+        -- Send TCP ping
+        local timestamp = now
+        local encoded = Protocol.encode(Protocol.MSG.PING, timestamp)
+        if self:send(encoded) then
+            self.pendingPing = {timestamp = timestamp, sent_time = now}
+            self.lastPingTime = now
+        end
+
+        -- Send HTTP ping request (fire and forget, result will be measured via TCP pong)
+        self:sendHTTPPing()
+    end
     
     -- Use non-blocking receive with timeout
     self.tcp:settimeout(0)
@@ -129,6 +160,15 @@ function RelayClient:poll()
     
     -- Split by newline and process messages
     for line in combinedData:gmatch("(.-)\n") do
+        -- Estimate ping based on packet round trip when we receive any message
+        if self.lastPacketSentTime > 0 then
+            local now = love.timer.getTime()
+            local packetRTT = (now - self.lastPacketSentTime) * 1000
+            if packetRTT > 0 and packetRTT < 500 then  -- Reasonable ping range
+                self:updatePingMeasurement(packetRTT)
+            end
+        end
+
         if line == "PAIRED" then
             print("RelayClient: Opponent connected to relay!")
             self.paired = true
@@ -194,6 +234,18 @@ function RelayClient:poll()
                     elseif msg.type == Protocol.MSG.EXTRACTION then
                         msg.type = "extract"
                         print("RelayClient: Received EXTRACTION")
+                    elseif msg.type == Protocol.MSG.PING then
+                        -- Respond to ping with pong
+                        local pongData = Protocol.encode(Protocol.MSG.PONG, msg.timestamp)
+                        self:send(pongData)
+                    elseif msg.type == Protocol.MSG.PONG then
+                        -- Calculate ping if we have a pending ping
+                        if self.pendingPing and self.pendingPing.timestamp == msg.timestamp then
+                            local now = love.timer.getTime()
+                            local pingMs = (now - self.pendingPing.sent_time) * 1000  -- Convert to milliseconds
+                            self:updatePingMeasurement(pingMs)
+                            self.pendingPing = nil
+                        end
                     elseif msg.type == Protocol.MSG.INPUT_SHOOT or msg.type == Protocol.MSG.INPUT_INTERACT then
                         -- Ignore our own inputs echoed back
                         print("RelayClient: Ignoring echoed input: " .. (msg.type or "nil"))
@@ -231,6 +283,15 @@ function RelayClient:sendPosition(x, y, direction, skin, sprinting)
         print("RelayClient: sendPosition called but not connected!")
         return false
     end
+
+    -- Rate limiting based on connection quality
+    local now = love.timer.getTime()
+    if now - self.lastSendTime < self.sendRate then
+        return true  -- Not an error, just rate limited
+    end
+    self.lastSendTime = now
+    self.lastPacketSentTime = now  -- Track for ping measurement
+
     -- Note: We still send position even if not paired yet (opponent may connect soon)
     -- This allows smooth movement from the start
     local encoded = Protocol.encode(Protocol.MSG.PLAYER_MOVE, self.playerId or "?", math.floor(x), math.floor(y), direction or "down")
@@ -250,6 +311,7 @@ end
 
 function RelayClient:sendPetPosition(playerId, x, y, monster)
     if not self.connected then return false end
+    self.lastPacketSentTime = love.timer.getTime()
     local encoded = Protocol.encode(Protocol.MSG.PET_MOVE, playerId or self.playerId or "?", math.floor(x), math.floor(y))
     if monster then
         encoded = encoded .. "|" .. monster
@@ -258,6 +320,8 @@ function RelayClient:sendPetPosition(playerId, x, y, monster)
 end
 
 function RelayClient:sendMessage(msg)
+    self.lastPacketSentTime = love.timer.getTime()
+
     local encoded
     if msg.type == Protocol.MSG.PLAYER_MOVE then
         encoded = Protocol.encode(Protocol.MSG.PLAYER_MOVE, self.playerId or "?", msg.x or 0, msg.y or 0, msg.dir or "down")
@@ -279,6 +343,64 @@ function RelayClient:sendMessage(msg)
     return self:send(encoded)
 end
 
+function RelayClient:updatePingMeasurement(pingMs)
+    if pingMs and pingMs > 0 then
+        table.insert(self.pingHistory, pingMs)
+        if #self.pingHistory > self.maxPingSamples then
+            table.remove(self.pingHistory, 1)
+        end
+
+        -- Calculate average ping
+        local sum = 0
+        for _, p in ipairs(self.pingHistory) do
+            sum = sum + p
+        end
+        self.averagePing = sum / #self.pingHistory
+
+        -- Calculate connection quality (0.0 to 1.0)
+        -- Good ping (< 50ms) = 1.0, Poor ping (> 200ms) = 0.0
+        self.connectionQuality = math.max(0, math.min(1, 1 - (self.averagePing - 50) / 150))
+
+    end
+end
+
+function RelayClient:sendHTTPPing()
+    if not self.roomCode then return end
+
+    -- Use HTTP ping endpoint for additional latency measurement
+    local http = require("src.net.simple_http")
+    local Constants = require("src.constants")
+
+    -- Build ping URL
+    local pingUrl = Constants.RELAY_HTTP .. "/ping"
+
+    -- Send async HTTP request (fire and forget)
+    http.request(pingUrl, "GET", nil, function(response)
+        -- HTTP ping completed - this helps measure HTTP latency but we primarily use TCP
+        -- The TCP ping-pong is more reliable for real-time gaming
+    end, function(error)
+        -- HTTP ping failed - this is expected if server is down, we rely on TCP
+    end)
+end
+
+function RelayClient:getConnectionQuality()
+    return self.connectionQuality, self.averagePing
+end
+
+-- Force a ping test (useful for debugging)
+function RelayClient:testPing()
+    if not self.connected then return end
+
+    local now = love.timer.getTime()
+    local timestamp = now
+    local encoded = Protocol.encode(Protocol.MSG.PING, timestamp)
+
+    if self:send(encoded) then
+        self.pendingPing = {timestamp = timestamp, sent_time = now}
+        print("RelayClient: Forced ping test sent")
+    end
+end
+
 function RelayClient:disconnect()
     if self.tcp then
         self.tcp:close()
@@ -287,7 +409,44 @@ function RelayClient:disconnect()
     self.connected = false
     self.roomCode = nil
     self.paired = false
+    self.pendingPing = nil
     print("RelayClient: Disconnected")
+end
+
+-- Update connection quality based on ping measurements
+function RelayClient:updateConnectionQuality(pingMs)
+    if pingMs and pingMs > 0 then
+        table.insert(self.pingHistory, pingMs)
+        if #self.pingHistory > self.maxPingSamples then
+            table.remove(self.pingHistory, 1)
+        end
+
+        -- Calculate average ping
+        local sum = 0
+        for _, p in ipairs(self.pingHistory) do
+            sum = sum + p
+        end
+        self.averagePing = sum / #self.pingHistory
+
+        -- Calculate connection quality (0.0 to 1.0)
+        -- Good ping (< 50ms) = 1.0, Poor ping (> 200ms) = 0.0
+        self.connectionQuality = math.max(0, math.min(1, 1 - (self.averagePing - 50) / 150))
+
+        -- Adjust send rate based on connection quality
+        -- Higher quality = higher send rate
+        self.sendRate = self.minSendRate + (self.maxSendRate - self.minSendRate) * self.connectionQuality
+
+        -- Debug logging (infrequent)
+        if math.random() < 0.01 then
+            print(string.format("RelayClient: Ping %.1fms, Quality %.2f, SendRate %.2fhz",
+                self.averagePing, self.connectionQuality, 1/self.sendRate))
+        end
+    end
+end
+
+-- Get current connection quality for external monitoring
+function RelayClient:getConnectionQuality()
+    return self.connectionQuality, self.averagePing
 end
 
 return RelayClient

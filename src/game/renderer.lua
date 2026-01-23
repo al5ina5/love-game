@@ -211,8 +211,20 @@ function Renderer.drawCycleTimer(game)
     local playerX = game.player and game.player.x and math.floor(game.player.x) or 0
     local playerY = game.player and game.player.y and math.floor(game.player.y) or 0
 
-    -- Format as "time fps x y"
-    local displayString = string.format("%s %d %d %d", timeString, fps, playerX, playerY)
+    -- Get ping from network client
+    local ping = 0
+    if game.network and game.network.client then
+        local quality, avgPing = game.network.client:getConnectionQuality()
+        if avgPing and avgPing > 0 then
+            ping = math.floor(avgPing)
+        elseif game.network.client.testPing then
+            -- If we have no ping data yet, try to trigger a ping test
+            game.network.client:testPing()
+        end
+    end
+
+    -- Format as "time X: x Y: y fps/ping"
+    local displayString = string.format("%s X: %d Y: %d %d/%d", timeString, playerX, playerY, fps, ping)
 
     local padding = 10
     local x = padding

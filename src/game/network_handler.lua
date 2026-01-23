@@ -48,19 +48,18 @@ messageHandlers["player_joined"] = function(msg, game)
     local posX = msg.x or (game.world.worldWidth / 2)
     local posY = msg.y or (game.world.worldHeight / 2)
     local skin = msg.skin
-    
+
     if game.isHost and playerId and playerId ~= game.playerId then
         local WorldSync = require('src.game.world_sync')
         if game.world then
             game.world:sendRocksToClients(game.network, game.isHost)
         end
-        WorldSync.sendNPCsToClients(game)
-        WorldSync.sendAnimalsToClients(game)
+        -- NPCs and animals now come from server state, not separate sync
     end
-    
+
     if playerId and playerId ~= game.playerId then
         RemoteEntityFactory.createOrUpdateRemotePlayer(game, playerId, posX, posY, skin, "down", false)
-        
+
         if game.menu:isVisible() then
             if game.isHost and game.menu.state == Menu.STATE.WAITING then
                 game.menu:hide()
@@ -69,6 +68,12 @@ messageHandlers["player_joined"] = function(msg, game)
                 game.menu:hide()
                 print("Client: Host found! Starting game...")
             end
+        end
+    else
+        -- Clean up any ghost remote player for this ID
+        if game.remotePlayers[playerId] then
+            game.remotePlayers[playerId] = nil
+            print("NetworkHandler: Cleaned up ghost remote player from player_joined for ID: " .. (playerId or "nil"))
         end
     end
 end
@@ -152,6 +157,10 @@ local function processStateSnapshot(state, game)
     if state.npcs then
         EntityDataHandler.handleNPCDataFromState(state.npcs, game)
     end
+
+    if state.animals then
+        EntityDataHandler.handleAnimalsDataFromState(state.animals, game)
+    end
     
     if state.players then
         for playerId, playerData in pairs(state.players) do
@@ -165,6 +174,12 @@ local function processStateSnapshot(state, game)
                     playerData.direction or "down",
                     playerData.sprinting
                 )
+            else
+                -- Clean up any ghost remote player for current player ID
+                if game.remotePlayers[playerId] then
+                    game.remotePlayers[playerId] = nil
+                    print("NetworkHandler: Cleaned up ghost remote player for current player ID: " .. playerId)
+                end
             end
         end
         
@@ -179,6 +194,7 @@ local function processStateSnapshot(state, game)
     local projCount = 0
     local chestCount = 0
     local npcCount = 0
+    local animalCount = 0
     if state.players then
         for _ in pairs(state.players) do playerCount = playerCount + 1 end
     end
@@ -191,12 +207,16 @@ local function processStateSnapshot(state, game)
     if state.npcs then
         for _ in pairs(state.npcs) do npcCount = npcCount + 1 end
     end
-    
+    if state.animals then
+        for _ in pairs(state.animals) do animalCount = animalCount + 1 end
+    end
+
     if not game.lastStateLog or love.timer.getTime() - game.lastStateLog > 1 then
-        print("NetworkHandler: Updated game state (players: " .. playerCount .. 
-              ", projectiles: " .. projCount .. 
+        print("NetworkHandler: Updated game state (players: " .. playerCount ..
+              ", projectiles: " .. projCount ..
               ", chests: " .. chestCount ..
-              ", npcs: " .. npcCount .. ")")
+              ", npcs: " .. npcCount ..
+              ", animals: " .. animalCount .. ")")
         game.lastStateLog = love.timer.getTime()
     end
 end

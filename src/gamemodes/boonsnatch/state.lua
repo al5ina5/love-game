@@ -25,7 +25,15 @@ function State:new()
     
     -- Boss: { x, y, hp, maxHp, phase, active }
     self.boss = nil
-    
+
+    -- NPCs: { [npcId] = { x, y, spritePath, name, dialogue } }
+    self.npcs = {}
+    self.nextNpcId = 1
+
+    -- Animals: { [animalId] = { x, y, spritePath, name, speed, groupCenterX, groupCenterY, groupRadius } }
+    self.animals = {}
+    self.nextAnimalId = 1
+
     -- Match state
     self.matchStartTime = 0
     self.matchEndTime = 0
@@ -106,7 +114,7 @@ end
 function State:createChest(x, y, rarity)
     local chestId = "chest_" .. self.nextChestId
     self.nextChestId = self.nextChestId + 1
-    
+
     self.chests[chestId] = {
         id = chestId,
         x = x,
@@ -115,8 +123,45 @@ function State:createChest(x, y, rarity)
         respawnTimer = 0,
         rarity = rarity or "common",  -- common, rare, epic, legendary
     }
-    
+
     return chestId
+end
+
+-- Create an NPC
+function State:createNpc(x, y, spritePath, name, dialogue)
+    local npcId = "npc_" .. self.nextNpcId
+    self.nextNpcId = self.nextNpcId + 1
+
+    self.npcs[npcId] = {
+        id = npcId,
+        x = x,
+        y = y,
+        spritePath = spritePath or "",
+        name = name or "NPC",
+        dialogue = dialogue or {},
+    }
+
+    return npcId
+end
+
+-- Create an animal
+function State:createAnimal(x, y, spritePath, name, speed, groupCenterX, groupCenterY, groupRadius)
+    local animalId = "animal_" .. self.nextAnimalId
+    self.nextAnimalId = self.nextAnimalId + 1
+
+    self.animals[animalId] = {
+        id = animalId,
+        x = x,
+        y = y,
+        spritePath = spritePath or "",
+        name = name or "Animal",
+        speed = speed or 30,
+        groupCenterX = groupCenterX or x,
+        groupCenterY = groupCenterY or y,
+        groupRadius = groupRadius or 150,
+    }
+
+    return animalId
 end
 
 -- Open a chest (returns true if successfully opened)
@@ -204,6 +249,8 @@ function State:serialize()
         chests = self.chests,
         enemies = self.enemies,
         boss = self.boss,
+        npcs = self.npcs,
+        animals = self.animals,
         matchStartTime = self.matchStartTime,
         matchEndTime = self.matchEndTime,
         winner = self.winner,
@@ -221,6 +268,8 @@ function State:deserialize(jsonString)
         self.chests = data.chests or {}
         self.enemies = data.enemies or {}
         self.boss = data.boss
+        self.npcs = data.npcs or {}
+        self.animals = data.animals or {}
         self.matchStartTime = data.matchStartTime or 0
         self.matchEndTime = data.matchEndTime or 0
         self.winner = data.winner

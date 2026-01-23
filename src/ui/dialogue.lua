@@ -90,7 +90,7 @@ end
 
 function Dialogue:new()
     local self = setmetatable({}, Dialogue)
-    
+
     -- State
     self.active = false
     self.pages = {}  -- Array of text pages
@@ -100,20 +100,21 @@ function Dialogue:new()
     self.charTimer = 0
     self.charDelay = 0.03  -- Time between characters
     self.speakerName = ""
-    
+    self.isFirstAdvance = true  -- Track if this is the first time dialogue is advanced
+
     -- Fonts will be created dynamically based on screen size
     self.font = nil
     self.nameFont = nil
     self.fontSize = 14  -- Base font size (Gameboy-style, slightly larger)
     self.nameFontSize = 11
-    
+
     self.margin = 6  -- Smaller margin for compact layout
     self.edgeMargin = 8  -- Margin from screen edges (doubled)
-    
+
     -- Blinking indicator
     self.blinkTimer = 0
     self.showIndicator = true
-    
+
     return self
 end
 
@@ -247,33 +248,34 @@ function Dialogue:start(speakerName, lines)
     self.active = true
     -- Sanitize speaker name
     self.speakerName = sanitizeText(speakerName) or "???"
-    
+
     -- Combine all lines into one text string and sanitize
     local sanitizedLines = {}
     for i, line in ipairs(lines) do
         table.insert(sanitizedLines, sanitizeText(tostring(line)))
     end
     local fullText = table.concat(sanitizedLines, " ")
-    
+
     -- Initialize fonts based on current screen size
     local screenW = love.graphics.getWidth()
     local screenH = love.graphics.getHeight()
     self.fontSize, self.nameFontSize = self:calculateFontSize(screenW, screenH)
-    
+
     -- Always recreate fonts to ensure correct size
     self.font = love.graphics.newFont("assets/fonts/runescape_uf.ttf", self.fontSize)
     self.font:setFilter("nearest", "nearest")
     self.font:setLineHeight(1.2)  -- Compact line height
-    
+
     self.nameFont = love.graphics.newFont("assets/fonts/runescape_uf.ttf", self.nameFontSize)
     self.nameFont:setFilter("nearest", "nearest")
-    
+
     -- Paginate the text
     self.pages = self:paginateText(fullText, screenW, screenH)
     self.currentPage = 1
     self.displayedText = ""
     self.charIndex = 0
     self.charTimer = 0
+    self.isFirstAdvance = true  -- Reset first advance flag when starting new dialogue
 end
 
 function Dialogue:isActive()
@@ -288,12 +290,15 @@ function Dialogue:isPageComplete()
 end
 
 function Dialogue:advance()
-    if not self.active then return end
+    if not self.active then return false end
     if #self.pages == 0 then
         self:close()
-        return
+        return false
     end
-    
+
+    local wasFirstAdvance = self.isFirstAdvance
+    self.isFirstAdvance = false
+
     if not self:isPageComplete() then
         -- Skip to end of current page
         if self.currentPage > 0 and self.currentPage <= #self.pages then
@@ -311,6 +316,8 @@ function Dialogue:advance()
             self.charTimer = 0
         end
     end
+
+    return wasFirstAdvance
 end
 
 function Dialogue:close()

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tileset Viewer - Love Game</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #e74c3c;
+            margin-bottom: 30px;
+        }
+        .viewer {
+            background-color: #34495e;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .controls {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .tile-info {
+            background-color: #2c3e50;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .tile-grid {
+            display: inline-block;
+            position: relative;
+            border: 2px solid #e74c3c;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .road-legend {
+            background-color: #2c3e50;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .legend-item {
+            display: inline-block;
+            margin: 10px;
+            padding: 10px;
+            background-color: #34495e;
+            border-radius: 5px;
+            min-width: 200px;
+        }
+        .legend-title {
+            color: #e74c3c;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .legend-desc {
+            font-size: 0.9em;
+            color: #bdc3c7;
+        }
+        .instructions {
+            background-color: #27ae60;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #2ecc71;
+        }
+        canvas {
+            border: 1px solid #7f8c8d;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛣️ Love Game Tileset Viewer</h1>
+
+        <div class="viewer">
+            <div class="controls">
+                <button onclick="toggleNumbers()">Toggle Numbers</button>
+                <button onclick="toggleGrid()">Toggle Grid</button>
+                <span id="hover-info">Hover over tiles to see info</span>
+            </div>
+
+            <div class="tile-grid">
+                <canvas id="tilesetCanvas" width="256" height="256"></canvas>
+            </div>
+
+            <div class="tile-info">
+                <strong>Tile Info:</strong> <span id="tileInfo">Hover over a tile</span>
+            </div>
+        </div>
+
+        <div class="road-legend">
+            <h2>🚧 Road Tile Identification Guide</h2>
+
+            <div class="legend-item">
+                <div class="legend-title">STRAIGHT_NS (North-South)</div>
+                <div class="legend-desc">Vertical straight road connecting up/down</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">STRAIGHT_EW (East-West)</div>
+                <div class="legend-desc">Horizontal straight road connecting left/right</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">CORNER_NE</div>
+                <div class="legend-desc">Corner connecting North and East (└ shape)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">CORNER_SE</div>
+                <div class="legend-desc">Corner connecting South and East (┌ shape)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">CORNER_SW</div>
+                <div class="legend-desc">Corner connecting South and West (┐ shape)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">CORNER_NW</div>
+                <div class="legend-desc">Corner connecting North and West (┘ shape)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">T_NORTH</div>
+                <div class="legend-desc">T-junction open upward (missing south)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">T_EAST</div>
+                <div class="legend-desc">T-junction open rightward (missing west)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">T_SOUTH</div>
+                <div class="legend-desc">T-junction open downward (missing north)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">T_WEST</div>
+                <div class="legend-desc">T-junction open leftward (missing east)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">CROSS</div>
+                <div class="legend-desc">4-way intersection (+ shape)</div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-title">DEAD_END_N/E/S/W</div>
+                <div class="legend-desc">Dead ends pointing in each direction</div>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3>📋 Instructions</h3>
+            <ol>
+                <li>Look at each tile and identify which road pattern it represents</li>
+                <li>Hover over tiles to see their coordinates and tile numbers</li>
+                <li>Note down which tile numbers correspond to which road types</li>
+                <li>Reply to the AI with mappings like: "STRAIGHT_NS = 35, STRAIGHT_EW = 36, CORNER_NE = 37..."</li>
+                <li>The AI will then configure your road generation system!</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tilesetCanvas');
+        const ctx = canvas.getContext('2d');
+        const tileSize = 16;
+        const tilesPerRow = 16;
+        const tilesPerCol = 16;
+
+        let showNumbers = true;
+        let showGrid = true;
+        let imageLoaded = false;
+
+        // Load the tileset image
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function() {
+            imageLoaded = true;
+            drawTileset();
+        };
+        img.src = 'assets/img/tileset/tileset-v1.png';
+
+        function drawTileset() {
+            if (!imageLoaded) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw the tileset image
+            ctx.drawImage(img, 0, 0);
+
+            // Draw grid if enabled
+            if (showGrid) {
+                ctx.strokeStyle = '#7f8c8d';
+                ctx.lineWidth = 0.5;
+
+                for (let x = 0; x <= canvas.width; x += tileSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, canvas.height);
+                    ctx.stroke();
+                }
+
+                for (let y = 0; y <= canvas.height; y += tileSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.stroke();
+                }
+            }
+
+            // Draw numbers if enabled
+            if (showNumbers) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+
+                let tileNumber = 1;
+                for (let row = 0; row < tilesPerCol; row++) {
+                    for (let col = 0; col < tilesPerRow; col++) {
+                        const x = col * tileSize + 2;
+                        const y = row * tileSize + 2;
+
+                        // Draw background rectangle for number
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                        ctx.fillRect(x - 1, y - 1, 14, 12);
+
+                        // Draw number
+                        ctx.fillStyle = '#f1c40f'; // Yellow
+                        ctx.fillText(tileNumber.toString(), x, y);
+
+                        tileNumber++;
+                    }
+                }
+            }
+        }
+
+        function toggleNumbers() {
+            showNumbers = !showNumbers;
+            drawTileset();
+        }
+
+        function toggleGrid() {
+            showGrid = !showGrid;
+            drawTileset();
+        }
+
+        // Mouse hover detection
+        canvas.addEventListener('mousemove', function(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const col = Math.floor(x / tileSize);
+            const row = Math.floor(y / tileSize);
+
+            if (col >= 0 && col < tilesPerRow && row >= 0 && row < tilesPerCol) {
+                const tileNumber = row * tilesPerRow + col + 1;
+                document.getElementById('tileInfo').textContent =
+                    `Tile ${tileNumber} at Row ${row + 1}, Column ${col + 1}`;
+                document.getElementById('hover-info').textContent =
+                    `Tile ${tileNumber} (Row ${row + 1}, Col ${col + 1})`;
+            } else {
+                document.getElementById('tileInfo').textContent = 'Hover over a tile';
+                document.getElementById('hover-info').textContent = 'Hover over tiles to see info';
+            }
+        });
+
+        canvas.addEventListener('mouseleave', function() {
+            document.getElementById('tileInfo').textContent = 'Hover over a tile';
+            document.getElementById('hover-info').textContent = 'Hover over tiles to see info';
+        });
+
+        // Initial draw attempt (will work once image loads)
+        drawTileset();
+    </script>
+</body>
+</html>

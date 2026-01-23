@@ -116,6 +116,11 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
+// Ping endpoint for latency testing
+app.get('/ping', (req: Request, res: Response) => {
+  res.json({ timestamp: Date.now() });
+});
+
 app.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`[HTTP] Matchmaker listening on port ${HTTP_PORT}`);
 });

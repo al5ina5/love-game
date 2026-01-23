@@ -47,6 +47,10 @@ function Server:new(port, gameMode)
         self.serverLogic:addPlayer("host", 2500, 2500)
         -- Spawn initial chests
         self.serverLogic:spawnInitialChests(10)
+        -- Spawn NPCs
+        self.serverLogic:spawnNPCs()
+        -- Spawn animals
+        self.serverLogic:spawnAnimals()
         print("=== Boon Snatch Game Mode Enabled ===")
     end
     
@@ -328,7 +332,15 @@ function Server:poll()
                     type = Protocol.MSG.INPUT_INTERACT,
                     id = player.id
                 })
-                
+
+            elseif msg.type == Protocol.MSG.PING then
+                -- Respond to ping with pong
+                local pongData = Protocol.encode(Protocol.MSG.PONG, msg.timestamp)
+                event.peer:send(pongData, 0, "unreliable")
+
+            elseif msg.type == Protocol.MSG.PONG then
+                -- Server doesn't need to handle pong messages (clients measure ping)
+
             elseif msg.type == Protocol.MSG.PET_MOVE then
                 -- Relay pet position to others
                 local encoded = Protocol.encode(

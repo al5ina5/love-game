@@ -19,6 +19,7 @@ local Loading = require('src.game.loading')
 local Interaction = require('src.game.interaction')
 local EntitySpawner = require('src.game.entity_spawner')
 local NetworkUpdater = require('src.game.network_updater')
+local Constants = require('src.constants')
 
 local WORLD_W, WORLD_H = 5000, 5000
 
@@ -46,6 +47,10 @@ local Game = {
     loadingMessage = "Loading...",
     desaturationShader = nil,
     worldCanvas = nil,
+
+    -- Network polling optimization for Miyoo
+    lastNetworkPoll = 0,
+    networkPollInterval = Constants.MIYOO_NETWORK_POLL_RATE, -- Miyoo-tuned polling rate
 }
 
 function Game:load()
@@ -117,7 +122,7 @@ function Game:load()
     self.world:loadTiles()
     self.world:loadRocks()
     self.world:generateRocks()
-    
+
     self.npcs = {}
     self.animals = {}
     
@@ -204,13 +209,17 @@ function Game:update(dt)
     EntityManager.updateAll(self, dt)
     
     NetworkUpdater.update(self, dt)
-    
-    if self.network then
+
+    -- Throttle network polling for Miyoo performance
+    -- Only poll network at reduced frequency to prevent micro-stutters
+    self.lastNetworkPoll = self.lastNetworkPoll + dt
+    if self.network and self.lastNetworkPoll >= self.networkPollInterval then
+        self.lastNetworkPoll = 0
         local messages = self.network:poll()
         for _, msg in ipairs(messages) do
             NetworkHandler.handleMessage(msg, self)
         end
-        
+
         if self.isHost then
             self.discovery:setPlayerCount(1 + self:countRemotePlayers())
         end
@@ -248,7 +257,9 @@ function Game:keypressed(key)
         if key == "e" or key == "E" or key == "space" or key == "return" then
             self.dialogue:advance()
             local Audio = require('src.systems.audio')
-            Audio:playBlip()
+            if Audio.advanceBlip then
+                Audio:playAdvanceBlip()
+            end
         end
         return
     end
@@ -340,16 +351,22 @@ function Game:mousepressed(x, y, button)
     if button == 1 then
         self.dialogue:advance()
         local Audio = require('src.systems.audio')
-        Audio:playBlip()
+        if Audio.advanceBlip then
+            Audio:playAdvanceBlip()
+        end
     end
 end
 
 function Game:gamepadpressed(button)
     if self.dialogue:isActive() then
         if button == "a" then
-            self.dialogue:advance()
+            local wasFirstAdvance = self.dialogue:advance()
             local Audio = require('src.systems.audio')
-            Audio:playBlip()
+            if wasFirstAdvance and Audio.openingBlip then
+                Audio:playOpeningBlip()
+            elseif Audio.advanceBlip then
+                Audio:playAdvanceBlip()
+            end
         end
         return
     end
@@ -404,16 +421,24 @@ function Game:quit()
 end
 
 function Game:createNPCs()
+    -- For local games, create NPCs locally
+    -- For networked games, NPCs come from server state
     if self.npcs and #self.npcs > 0 then
         return
     end
+
+    local EntitySpawner = require('src.game.entity_spawner')
     self.npcs = EntitySpawner.createNPCs()
 end
 
 function Game:createAnimalGroups()
+    -- For local games, create animals locally
+    -- For networked games, animals come from server state
     if self.animals and #self.animals > 0 then
         return
     end
+
+    local EntitySpawner = require('src.game.entity_spawner')
     self.animals = EntitySpawner.createAnimalGroups()
 end
 
@@ -449,6 +474,62 @@ function Game:autoJoinOrCreateServer()
             ConnectionManager.hostOnline(true, self)
         end
     end)
+end
+
+-- Generate roads connecting points of interest in the world
+function Game:generateWorldRoads()
+    if not self.world then
+        print("WARNING: Cannot generate roads - world not initialized")
+        return
+    end
+
+    -- Define key locations where roads should connect
+    local pointsOfInterest = {}
+
+    -- Add player spawn point
+    local spawnX, spawnY
+    if self.player and self.player.x and self.player.y then
+        spawnX, spawnY = self.player.x, self.player.y
+    else
+        -- Fallback spawn point
+        spawnX, spawnY = WORLD_W / 2, WORLD_H / 2
+    end
+
+    table.insert(pointsOfInterest, {
+        x = spawnX,
+        y = spawnY,
+        type = "spawn",
+        priority = 3
+    })
+
+    -- Add points around the player spawn area to create visible roads
+    local roadRadius = 1000  -- Generate roads within 1000 pixels of spawn
+    local numPoints = 8
+
+    for i = 1, numPoints do
+        local angle = (i / numPoints) * 2 * math.pi
+        local distance = roadRadius * (0.3 + math.random() * 0.7)  -- Vary distance
+        local pointX = spawnX + math.cos(angle) * distance
+        local pointY = spawnY + math.sin(angle) * distance
+
+        -- Keep points within world bounds
+        pointX = math.max(100, math.min(WORLD_W - 100, pointX))
+        pointY = math.max(100, math.min(WORLD_H - 100, pointY))
+
+        local priority = (i <= 2) and 3 or 2  -- First 2 points are high priority
+        table.insert(pointsOfInterest, {
+            x = pointX,
+            y = pointY,
+            type = "waypoint",
+            priority = priority
+        })
+    end
+
+    -- Generate road network with a fixed seed for consistent results
+    local seed = 12345
+    self.world:generateRoadNetwork(pointsOfInterest, seed)
+
+    print(string.format("Generated road network with %d points of interest", #pointsOfInterest))
 end
 
 return Game

@@ -1,6 +1,7 @@
 -- src/gamemodes/boonsnatch/renderer.lua
 -- Boon Snatch game mode specific rendering
 
+local Constants = require('src.constants')
 local BoonSnatchRenderer = {}
 
 function BoonSnatchRenderer.drawChest(chest)
@@ -63,8 +64,8 @@ end
 
 function BoonSnatchRenderer.drawGameState(gameState, game)
     if not gameState then return end
-    
-    if gameState.chests then
+
+    if gameState.chests and not Constants.DISABLE_CHESTS then
         for chestId, chest in pairs(gameState.chests) do
             BoonSnatchRenderer.drawChest(chest)
         end

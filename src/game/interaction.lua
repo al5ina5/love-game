@@ -1,9 +1,14 @@
 -- src/game/interaction.lua
 -- Handles NPC and chest interactions
 
+local Constants = require('src.constants')
 local Interaction = {}
 
 function Interaction.tryInteractWithChest(game)
+    if Constants.DISABLE_CHESTS then
+        return false
+    end
+
     if not game.gameState or not game.gameState.chests or not game.player then
         return false
     end
@@ -40,6 +45,10 @@ function Interaction.tryInteractWithNPC(game)
 end
 
 function Interaction.drawInteractionPrompt(game)
+    if Constants.DISABLE_CHESTS then
+        return
+    end
+
     if not game.gameState or not game.gameState.chests or not game.player then
         return
     end

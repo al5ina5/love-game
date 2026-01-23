@@ -75,7 +75,7 @@ function NetworkAdapter:sendPosition(x, y, direction, skin, sprinting)
         end
     else
         if self.client then
-            print("NetworkAdapter: Forwarding sendPosition to " .. self.type .. " client")
+
             self.client:sendPosition(x, y, direction, skin, sprinting)
         else
             print("NetworkAdapter: sendPosition called but no client available (type: " .. self.type .. ")")
@@ -290,6 +290,14 @@ function NetworkAdapter:getRoomCode()
         return self.client.roomCode
     end
     return nil
+end
+
+-- Get connection quality and ping
+function NetworkAdapter:getConnectionQuality()
+    if self.client and self.client.getConnectionQuality then
+        return self.client:getConnectionQuality()
+    end
+    return 1.0, 0  -- Default: perfect quality, 0 ping
 end
 
 return NetworkAdapter

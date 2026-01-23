@@ -31,7 +31,8 @@ local function softClip(x)
 end
 
 function Audio:init()
-    self.blip = self:generateBlip()
+    self.advanceBlip = self:generateBlip()
+    self.openingBlip = self:generateBlip()  -- Same sound for now
     self.bgmData = self:generateBGM()
     self.bgmSource = nil
 end
@@ -118,9 +119,15 @@ function Audio:generateBGM()
     return data
 end
 
-function Audio:playBlip()
-    local src = love.audio.newSource(self.blip, "static")
-    src:setVolume(0.7)
+function Audio:playOpeningBlip()
+    local src = love.audio.newSource(self.openingBlip, "static")
+    src:setVolume(0.25)  -- Much quieter for peaceful sound
+    src:play()
+end
+
+function Audio:playAdvanceBlip()
+    local src = love.audio.newSource(self.advanceBlip, "static")
+    src:setVolume(0.15)  -- Very quiet for subtle page advances
     src:play()
 end
 

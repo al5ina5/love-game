@@ -1,0 +1,56 @@
+# ROAD TILE MAPPINGS FOR LOVE GAME
+# Using the perfect dirt square pattern as reference
+
+# ===================================================================
+# PERFECT DIRT SQUARE PATTERN (3x3)
+# ===================================================================
+#    000 000 000
+# 000 105 107 108 000
+# 000 117 130 132 000
+# 000 141 142 144 000
+#    000 000 000
+#
+# Where:
+# - 105: grass on TOP+LEFT (NW corner)
+# - 107: grass on TOP (N edge/dead end)
+# - 108: grass on TOP+RIGHT (NE corner)
+# - 117: grass on LEFT (W edge/dead end)
+# - 130: FULL DIRT (center)
+# - 132: grass on RIGHT (E edge/dead end)
+# - 141: grass on BOTTOM+LEFT (SW corner)
+# - 142: grass on BOTTOM (S edge/dead end)
+# - 144: grass on BOTTOM+RIGHT (SE corner)
+
+# ===================================================================
+# ROAD TILE MAPPINGS
+# ===================================================================
+
+# CENTER/INTERSECTIONS (full dirt, no grass edges)
+CROSS = 130          # ┼ Full dirt center tile
+STRAIGHT_NS = 130    # │ Vertical road center
+STRAIGHT_EW = 130    # ─ Horizontal road center
+T_NORTH = 130        # ┴ T-junction center
+T_EAST = 130         # ├ T-junction center
+T_SOUTH = 130        # ┬ T-junction center
+T_WEST = 130         # ┤ T-junction center
+
+# CORNERS (grass on two adjacent sides)
+CORNER_NE = 108      # └ NE corner (grass TOP+RIGHT)
+CORNER_SE = 144      # ┌ SE corner (grass BOTTOM+RIGHT)
+CORNER_SW = 141      # ┐ SW corner (grass BOTTOM+LEFT)
+CORNER_NW = 105      # ┘ NW corner (grass TOP+LEFT)
+
+# DEAD ENDS (grass on three sides, road on one side)
+DEAD_END_N = 107     # ╵ North dead end (grass TOP+LEFT+RIGHT)
+DEAD_END_E = 132     # ╶ East dead end (grass RIGHT+TOP+BOTTOM)
+DEAD_END_S = 142     # ╷ South dead end (grass BOTTOM+LEFT+RIGHT)
+DEAD_END_W = 117     # ╴ West dead end (grass LEFT+TOP+BOTTOM)
+
+# ===================================================================
+# USAGE NOTES
+# ===================================================================
+# - Direction indicates where grass appears on the tile
+# - Corners have grass on two adjacent sides
+# - Dead ends have grass on three sides, road on one side
+# - Center tiles (130) have no grass edges
+# - Use these tiles for perfect grass blending in procedural roads

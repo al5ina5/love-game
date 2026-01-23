@@ -8,6 +8,11 @@ local RemoteEntityFactory = {}
 
 function RemoteEntityFactory.createOrUpdateRemotePlayer(game, playerId, posX, posY, skin, direction, sprinting)
     if not playerId or playerId == game.playerId then
+        -- Clean up any existing remote player for this ID (ghost player fix)
+        if game.remotePlayers[playerId] then
+            game.remotePlayers[playerId] = nil
+            print("RemoteEntityFactory: Cleaned up ghost remote player for ID: " .. playerId)
+        end
         return nil
     end
     

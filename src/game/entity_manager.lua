@@ -17,20 +17,25 @@ end
 -- Update local player with collision detection
 function EntityManager.updatePlayer(player, dt, world, chunkManager, worldWidth, worldHeight)
     if not player or type(player.update) ~= "function" then
+        print("EntityManager.updatePlayer: Player not valid")
         return
     end
-    
+
+
+
     local oldX = player.x
     local oldY = player.y
-    
+
     player:update(dt)
-    
+
     EntityManager.clampToBounds(player, worldWidth, worldHeight)
-    
-    if world:checkRockCollision(player.x, player.y, player.width, player.height, chunkManager) then
-        player.x = oldX
-        player.y = oldY
-    end
+
+    -- Temporarily disable collision detection to test movement
+    -- if world:checkRockCollision(player.x, player.y, player.width, player.height, chunkManager) then
+    --     print(string.format("Player: Rock collision detected at (%.1f,%.1f), reverting to (%.1f,%.1f)", player.x, player.y, oldX, oldY))
+    --     player.x = oldX
+    --     player.y = oldY
+    -- end
 end
 
 -- Update pet with collision detection
