@@ -22,24 +22,9 @@ function EntityDataHandler.handleNPCData(npcsData, game)
 end
 
 function EntityDataHandler.handleAnimalsData(animalsData, game)
-    if not animalsData then return end
-    
-    local Animal = require('src.entities.animal')
-    game.animals = {}
-    
-    for _, animalData in ipairs(animalsData) do
-        local animal = Animal:new(
-            animalData.x or 0,
-            animalData.y or 0,
-            animalData.spritePath or "",
-            animalData.name or "Animal",
-            animalData.speed or 30
-        )
-        if animalData.groupCenterX and animalData.groupCenterY and animalData.groupRadius then
-            animal:setGroupCenter(animalData.groupCenterX, animalData.groupCenterY, animalData.groupRadius)
-        end
-        table.insert(game.animals, animal)
-    end
+    -- Disabled for performance: basically for now just send tiles and trees
+    -- if not animalsData then return end
+    -- ... (logic removed)
 end
 
 function EntityDataHandler.handleNPCDataFromState(npcsData, game)
@@ -94,62 +79,9 @@ function EntityDataHandler.handleNPCDataFromState(npcsData, game)
 end
 
 function EntityDataHandler.handleAnimalsDataFromState(animalsData, game)
-    if not animalsData then return end
-
-    local Animal = require('src.entities.animal')
-    
-    -- Index existing Animals by ID
-    local currentAnimalsById = {}
-    if game.animals then
-        for _, animal in ipairs(game.animals) do
-            if animal.id then
-                currentAnimalsById[animal.id] = animal
-            end
-        end
-    end
-    
-    local newAnimalList = {}
-    
-    for animalId, animalData in pairs(animalsData) do
-        local existingAnimal = currentAnimalsById[animalId]
-        
-        if existingAnimal then
-            -- Update existing Animal
-            existingAnimal.x = animalData.x or existingAnimal.x
-            existingAnimal.y = animalData.y or existingAnimal.y
-            
-            -- Only reload sprite if changed
-            if animalData.spritePath and animalData.spritePath ~= existingAnimal.spritePath then
-                existingAnimal.spritePath = animalData.spritePath
-                 existingAnimal:loadSprite(animalData.spritePath)
-            end
-            
-            if animalData.name then existingAnimal.animalName = animalData.name end
-            if animalData.speed then existingAnimal.speed = animalData.speed end
-            
-            if animalData.groupCenterX and animalData.groupCenterY and animalData.groupRadius then
-                existingAnimal:setGroupCenter(animalData.groupCenterX, animalData.groupCenterY, animalData.groupRadius)
-            end
-            
-            table.insert(newAnimalList, existingAnimal)
-        else
-            -- Create new Animal
-            local animal = Animal:new(
-                animalData.x or 0,
-                animalData.y or 0,
-                animalData.spritePath or "",
-                animalData.name or "Animal",
-                animalData.speed or 30
-            )
-            animal.id = animalId -- Attach ID for future reuse
-            if animalData.groupCenterX and animalData.groupCenterY and animalData.groupRadius then
-                animal:setGroupCenter(animalData.groupCenterX, animalData.groupCenterY, animalData.groupRadius)
-            end
-            table.insert(newAnimalList, animal)
-        end
-    end
-    
-    game.animals = newAnimalList
+    -- Disabled for performance: basically for now just send tiles and trees
+    -- if not animalsData then return end
+    -- ... (logic removed)
 end
 
 return EntityDataHandler

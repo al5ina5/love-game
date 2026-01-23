@@ -32,8 +32,40 @@ class Alea {
         return Math.floor(this.next() * (max - min + 1)) + min;
     }
 }
+class ValueNoise {
+    constructor(seed) {
+        this.grid = [];
+        this.size = 256;
+        this.rng = new Alea(seed);
+        for (let i = 0; i < this.size; i++) {
+            this.grid[i] = [];
+            for (let j = 0; j < this.size; j++) {
+                this.grid[i][j] = this.rng.next();
+            }
+        }
+    }
+    fade(t) {
+        return t * t * t * (t * (t * 6 - 15) + 10);
+    }
+    lerp(a, b, t) {
+        return a + t * (b - a);
+    }
+    get(x, y) {
+        const X = Math.floor(x) % this.size;
+        const Y = Math.floor(y) % this.size;
+        const xf = x - Math.floor(x);
+        const yf = y - Math.floor(y);
+        const u = this.fade(xf);
+        const v = this.fade(yf);
+        const x1 = (X + 1) % this.size;
+        const y1 = (Y + 1) % this.size;
+        const res = this.lerp(this.lerp(this.grid[X][Y], this.grid[x1][Y], u), this.lerp(this.grid[X][y1], this.grid[x1][y1], u), v);
+        return res;
+    }
+}
 class WorldGenerator {
     constructor(chunkManager, seed) {
+        this.animalManager = null;
         // Sparse maps for generation logic checks
         this.roadMap = {};
         this.waterMap = {};
@@ -42,6 +74,7 @@ class WorldGenerator {
         this.worldWidth = 5000; // Passed in or hardcoded in server
         this.worldHeight = 5000;
         this.rng = new Alea(seed);
+        this.noise = new ValueNoise(seed + 1);
     }
     generate() {
         console.log('[WorldGenerator] Starting generation...');
@@ -51,42 +84,44 @@ class WorldGenerator {
         this.generateWater();
         // 3. Objects (Trees, Rocks)
         this.generateObjects();
+        // 4. Animals (after water generation for collision avoidance)
+        this.generateAnimals();
         console.log('[WorldGenerator] Generation complete.');
     }
     // --- Roads ---
     generateRoads() {
-        const pointsOfInterest = [
-            { x: 500, y: 500 }, // Top-left
-            { x: 2500, y: 500 }, // Top-mid
-            { x: 4500, y: 500 }, // Top-right
-            { x: 500, y: 2500 }, // Mid-left
-            { x: 2500, y: 2500 }, // Spawn center
-            { x: 4500, y: 2500 }, // Mid-right
-            { x: 500, y: 4500 }, // Bot-left
-            { x: 2500, y: 4500 }, // Bot-mid
-            { x: 4500, y: 4500 } // Bot-right
+        const center = { x: 2500, y: 2500 };
+        const corners = [
+            { x: 500, y: 500 }, // NW
+            { x: 4500, y: 500 }, // NE
+            { x: 4500, y: 4500 }, // SE
+            { x: 500, y: 4500 }, // SW
         ];
-        // Connect points simply (1->2->3...)
-        for (let i = 0; i < pointsOfInterest.length - 1; i++) {
-            const p1 = pointsOfInterest[i];
-            const p2 = pointsOfInterest[i + 1];
-            // Convert to tile coordinates
+        // Create a star-like network through spawn
+        for (const corner of corners) {
+            // Add some randomness to corners
+            const p1 = {
+                x: corner.x + this.rng.range(-400, 400),
+                y: corner.y + this.rng.range(-400, 400)
+            };
+            const p2 = { x: center.x, y: center.y };
             const start = { x: Math.floor(p1.x / TILE_SIZE), y: Math.floor(p1.y / TILE_SIZE) };
             const end = { x: Math.floor(p2.x / TILE_SIZE), y: Math.floor(p2.y / TILE_SIZE) };
             const path = this.findPath(start, end);
             if (path) {
+                console.log(`[WorldGenerator] Road segment: (${start.x},${start.y}) -> (${end.x},${end.y}), nodes: ${path.length}`);
                 this.drawThickLine(path);
             }
+            else {
+                console.warn(`[WorldGenerator] FAILED road segment: (${start.x},${start.y}) -> (${end.x},${end.y})`);
+            }
         }
-        // Add some random loops/connections? (Optional, skipping for parity with current Lua)
         // Bitmasking & Writing to ChunkManager
         this.finalizeRoads();
     }
     findPath(start, end) {
         // A* implementation
-        // For simplicity heavily simplified since it's an open field mostly
-        // But let's do a proper basic grid A*
-        const heuristic = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        const heuristic = (a, b) => (Math.abs(a.x - b.x) + Math.abs(a.y - b.y)); // Standard Manhattan
         const openSet = [{ pos: start, f: 0, g: 0 }];
         const cameFrom = {};
         const gScore = {};
@@ -95,11 +130,12 @@ class WorldGenerator {
         gScore[key(start)] = 0;
         fScore[key(start)] = heuristic(start, end);
         let iterations = 0;
-        while (openSet.length > 0 && iterations < 5000) {
+        while (openSet.length > 0 && iterations < 50000) {
             iterations++;
             // Sort by f
             openSet.sort((a, b) => a.f - b.f);
-            const current = openSet.shift().pos;
+            const currentNode = openSet.shift();
+            const current = currentNode.pos;
             if (current.x === end.x && current.y === end.y) {
                 // Reconstruct
                 const path = [current];
@@ -117,7 +153,11 @@ class WorldGenerator {
             for (const neighbor of neighbors) {
                 if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= this.worldWidth / TILE_SIZE || neighbor.y >= this.worldHeight / TILE_SIZE)
                     continue;
-                const tentativeG = gScore[key(current)] + 1;
+                // Noise-based cost to create winding roads
+                // Using a larger scale for "mountains/valleys" that the road avoids
+                const noiseVal = this.noise.get(neighbor.x * 0.1, neighbor.y * 0.1);
+                const stepCost = 1 + noiseVal * 15;
+                const tentativeG = gScore[key(current)] + stepCost;
                 const nKey = key(neighbor);
                 if (tentativeG < (gScore[nKey] ?? Infinity)) {
                     cameFrom[nKey] = current;
@@ -132,7 +172,7 @@ class WorldGenerator {
         return null;
     }
     drawThickLine(path) {
-        const THICKNESS = 4; // radius
+        const THICKNESS = 2; // radius (reduced from 4 for thinner roads)
         for (const node of path) {
             for (let dy = -THICKNESS; dy <= THICKNESS; dy++) {
                 for (let dx = -THICKNESS; dx <= THICKNESS; dx++) {
@@ -185,6 +225,15 @@ class WorldGenerator {
                 else if (!this.isRoad(x - 1, y + 1))
                     tileID = ROAD_TILES.INNER_SW;
             }
+            // Add texture variation to CENTER tiles using IDs 16, 17, 18 sparingly
+            if (tileID === ROAD_TILES.CENTER) {
+                const rand = this.rng.next();
+                if (rand < 0.08) { // 8% chance for texture variant
+                    const textureVariants = [16, 17, 18];
+                    const variantIndex = Math.floor(this.rng.next() * 3);
+                    tileID = textureVariants[variantIndex];
+                }
+            }
             this.chunkManager.addRoadTile(x, y, tileID);
         }
     }
@@ -222,7 +271,7 @@ class WorldGenerator {
         }
         // Grow ponds
         for (const seed of potentialSeeds) {
-            if (this.rng.next() < 0.05) { // 5% chance
+            if (this.rng.next() < 0.03) { // 3% chance (adjusted for larger sizes)
                 this.growPond(seed);
             }
         }
@@ -232,7 +281,8 @@ class WorldGenerator {
         this.finalizeWater();
     }
     growPond(seed) {
-        const targetSize = this.rng.range(15, 60);
+        // Smaller water bodies (reduced from 60-600 to 30-200)
+        const targetSize = this.rng.range(30, 200);
         let currentSize = 0;
         const frontier = [seed];
         this.waterMap[`${seed.x},${seed.y}`] = true;
@@ -365,22 +415,71 @@ class WorldGenerator {
     // --- Objects ---
     generateObjects() {
         // Trees
-        const numTrees = Math.floor((this.worldWidth * this.worldHeight) / 40000);
+        // We'll use noise-based density for trees
+        // Density map: low noise = clearings, high noise = forests
         const treeWidth = 48; // Estimate
         const treeHeight = 64;
-        for (let i = 0; i < numTrees; i++) {
-            const x = this.rng.range(0, this.worldWidth - treeWidth);
-            const y = this.rng.range(0, this.worldHeight - treeHeight);
-            // Validation
-            const tx = Math.floor(x / TILE_SIZE);
-            const ty = Math.floor((y + treeHeight) / TILE_SIZE);
-            if (!this.isRoad(tx, ty)
-                && !this.waterMap[`${tx},${ty}`]
-                && !this.isRoad(Math.floor((x + treeWidth) / TILE_SIZE), ty)) {
-                // Spawn distance check
-                const distSq = Math.pow(x - 2500, 2) + Math.pow(y - 2500, 2);
-                if (distSq > 40000) { // 200px
-                    this.chunkManager.addTree({ x, y, width: treeWidth, height: treeHeight });
+        // Grid-based sampling for density map
+        const step = 24; // Check every 24 pixels
+        for (let y = 0; y < this.worldHeight - treeHeight; y += step) {
+            for (let x = 0; x < this.worldWidth - treeWidth; x += step) {
+                // Get density value from noise (0-1)
+                const densityNoise = this.noise.get(x * 0.005, y * 0.005);
+                // Density threshold: 0.6 and above starts spawning trees
+                // The higher the noise, the higher the chance
+                let spawnChance = 0;
+                if (densityNoise > 0.6) {
+                    spawnChance = (densityNoise - 0.6) * 0.5; // Up to 20% chance in high density
+                }
+                else if (densityNoise < 0.3) {
+                    spawnChance = 0; // Absolute clearings
+                }
+                else {
+                    spawnChance = 0.01; // Sparse trees
+                }
+                if (this.rng.next() < spawnChance) {
+                    // Position jitter
+                    const jx = x + this.rng.range(-10, 10);
+                    const jy = y + this.rng.range(-10, 10);
+                    // Validation (Tile coords)
+                    const tx = Math.floor(jx / TILE_SIZE);
+                    const ty = Math.floor((jy + treeHeight) / TILE_SIZE);
+                    // Ensure not on road or in water
+                    if (!this.isRoad(tx, ty) && !this.waterMap[`${tx},${ty}`] &&
+                        !this.isRoad(Math.floor((jx + treeWidth) / TILE_SIZE), ty)) {
+                        // Spawn distance check (200px from center)
+                        const distSq = Math.pow(jx - 2500, 2) + Math.pow(jy - 2500, 2);
+                        if (distSq > 40000) {
+                            // Tree variety based on another noise map or just RNG
+                            const varietyNoise = this.noise.get(jx * 0.01 + 100, jy * 0.01 + 100);
+                            let treeType = "standard";
+                            if (varietyNoise > 0.85) {
+                                treeType = "alien";
+                            }
+                            else if (varietyNoise > 0.75) {
+                                treeType = "all_white";
+                            }
+                            else if (varietyNoise > 0.65) {
+                                treeType = "red_white";
+                            }
+                            else if (varietyNoise > 0.55) {
+                                treeType = "white";
+                            }
+                            else if (varietyNoise > 0.45) {
+                                treeType = "purple";
+                            }
+                            else if (varietyNoise > 0.35) {
+                                treeType = "blue";
+                            }
+                            this.chunkManager.addTree({
+                                x: jx,
+                                y: jy,
+                                width: treeWidth,
+                                height: treeHeight,
+                                type: treeType
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -403,6 +502,16 @@ class WorldGenerator {
                 });
             }
         }
+    }
+    // --- Animals ---
+    generateAnimals() {
+        // DISABLED for performance testing
+        console.log('[WorldGenerator] Animals DISABLED for performance');
+        // this.animalManager = new AnimalManager(12345, this.waterMap);
+        // this.animalManager.generate();
+    }
+    getAnimalManager() {
+        return this.animalManager;
     }
 }
 exports.WorldGenerator = WorldGenerator;

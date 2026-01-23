@@ -16,8 +16,9 @@ function NPC:new(x, y, spritePath, name, dialogueLines)
     self.dialogueLines = dialogueLines or {"..."}
     self.interactionRadius = 24  -- pixels
     
-    -- Store sprite path for network sync
+    -- Store sprite path for network sync and lazy loading
     self.spritePath = spritePath or ""
+    self.spriteLoaded = false
     
     -- Animation state
     self.direction = "down"
@@ -40,21 +41,33 @@ function NPC:new(x, y, spritePath, name, dialogueLines)
 end
 
 function NPC:loadSprite(spritePath)
-    local ResourceManager = require('src.game.resource_manager')
-    self.spriteSheet = ResourceManager.getImage(spritePath)
-    self.frameWidth = 16
-    self.frameHeight = 16
+    if self.spriteLoaded then return end
     
-    -- Create quads for each frame
-    self.quads = {}
-    if self.spriteSheet then
-        for i = 0, self.frameCount - 1 do
-            self.quads[i + 1] = love.graphics.newQuad(
-                i * self.frameWidth, 0,
-                self.frameWidth, self.frameHeight,
-                self.spriteSheet:getDimensions()
-            )
+    local path = spritePath or self.spritePath
+    if not path or path == "" then return end
+    
+    local success, err = pcall(function()
+        local ResourceManager = require('src.game.resource_manager')
+        self.spriteSheet = ResourceManager.getImage(path)
+        self.frameWidth = 16
+        self.frameHeight = 16
+        
+        -- Create quads for each frame
+        self.quads = {}
+        if self.spriteSheet then
+            for i = 0, self.frameCount - 1 do
+                self.quads[i + 1] = love.graphics.newQuad(
+                    i * self.frameWidth, 0,
+                    self.frameWidth, self.frameHeight,
+                    self.spriteSheet:getDimensions()
+                )
+            end
+            self.spriteLoaded = true
         end
+    end)
+    
+    if not success then
+        print("NPC: Failed to lazy load sprite: " .. tostring(err))
     end
 end
 
@@ -79,6 +92,10 @@ function NPC:getDialogue()
 end
 
 function NPC:draw()
+    if not self.spriteLoaded then
+        self:loadSprite(self.spritePath)
+    end
+
     -- Round positions to pixels to prevent blur
     local drawX = math.floor(self.x + 0.5)
     local drawY = math.floor(self.y + 0.5)
@@ -95,17 +112,19 @@ function NPC:draw()
     local offsetX = 0
     if self.direction == "left" then
         scaleX = -1
-        offsetX = self.frameWidth
+        offsetX = self.frameWidth or 16
     end
     
-    love.graphics.draw(
-        self.spriteSheet,
-        self.quads[self.animFrame],
-        drawX + offsetX,
-        drawY,
-        0,  -- rotation
-        scaleX, 1  -- scale
-    )
+    if self.spriteSheet and self.quads[self.animFrame] then
+        love.graphics.draw(
+            self.spriteSheet,
+            self.quads[self.animFrame],
+            drawX + offsetX,
+            drawY,
+            0,  -- rotation
+            scaleX, 1  -- scale
+        )
+    end
 end
 
 return NPC

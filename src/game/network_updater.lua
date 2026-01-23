@@ -8,8 +8,15 @@ local sendRate = Constants.MIYOO_BASE_SEND_RATE
 
 function NetworkUpdater.update(game, dt)
     -- Safety checks
-    if not game.network or not game.network:isConnected() then 
+    if not game.network then 
         return 
+    end
+
+    -- Run server simulation (if host)
+    game.network:update(dt)
+
+    if not game.network:isConnected() then
+        return
     end
     
     if not game.player then 

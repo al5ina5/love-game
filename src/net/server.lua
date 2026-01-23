@@ -7,6 +7,7 @@ local enet = require("enet")
 local Protocol = require("src.net.protocol")
 
 local Server = {}
+local json = require('src.lib.dkjson')
 Server.__index = Server
 
 function Server:new(port, gameMode)
@@ -25,6 +26,9 @@ function Server:new(port, gameMode)
         self.host = nil  -- Local-only server logic, no network
         print("Server: Created local-only server (no network port)")
     end
+    
+    -- Local loopback for host
+    self.localMessages = {}
     
     -- Track connected players: peer -> { id, x, y, direction }
     self.players = {}
@@ -49,8 +53,8 @@ function Server:new(port, gameMode)
         self.serverLogic:spawnInitialChests(10)
         -- Spawn NPCs
         self.serverLogic:spawnNPCs()
-        -- Spawn animals
-        self.serverLogic:spawnAnimals()
+        -- Spawn animals (Disabled for performance)
+        -- self.serverLogic:spawnAnimals()
         print("=== Boon Snatch Game Mode Enabled ===")
     end
     
@@ -83,14 +87,18 @@ function Server:disconnect()
 end
 
 function Server:broadcast(data, excludePeer, reliable)
-    if not self.host then return end
-    
-    local flag = reliable and "reliable" or "unreliable"
-    for peer in pairs(self.players) do
-        if peer ~= excludePeer then
-            peer:send(data, 0, flag)
+    -- Send to remote peers
+    if self.host then
+        local flag = reliable and "reliable" or "unreliable"
+        for peer in pairs(self.players) do
+            if peer ~= excludePeer then
+                peer:send(data, 0, flag)
+            end
         end
     end
+    
+    -- Always send to local host loopback
+    table.insert(self.localMessages, data)
 end
 
 function Server:sendPosition(x, y, direction, skin, sprinting)
@@ -141,8 +149,18 @@ end
 
 function Server:poll()
     local messages = {}
+    
+    -- Process loopback messages first
+    for _, data in ipairs(self.localMessages) do
+        local msg = Protocol.decode(data)
+        if msg then
+            table.insert(messages, msg)
+        end
+    end
+    self.localMessages = {}
+    
     if not self.host then 
-        -- Local-only server (no network), return empty messages
+        -- Local-only server (no network), return only loopback messages
         return messages 
     end
     

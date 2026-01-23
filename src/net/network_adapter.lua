@@ -129,12 +129,21 @@ function NetworkAdapter:send(msgType, ...)
     else
         -- Online/Relay
         if self.client then
+            local success = false
             if self.client.send then
                 -- RelayClient has direct send(data) method
-                return self.client:send(encoded)
+                success = self.client:send(encoded)
             elseif self.client.sendMessage then
-                return self.client:sendMessage({ data = encoded })
+                success = self.client:sendMessage({ data = encoded })
             end
+            
+            -- If we are the host, also loop back locally so we handle our own requests
+            if self:isHost() and self.localServer then
+                -- The server:poll() will pick this up via its localMessages
+                self.localServer:broadcast(encoded)
+            end
+            
+            return success
         end
     end
     return false
@@ -269,15 +278,32 @@ function NetworkAdapter:poll()
             end
         end
     else
+        -- Online/Relay
         if self.client then
             local onlineMsgs = self.client:poll()
             for _, msg in ipairs(onlineMsgs) do
                 table.insert(messages, msg)
             end
         end
+        -- Also poll localServer for relay host
+        if self.localServer then
+            local serverMsgs = self.localServer:poll()
+            for _, msg in ipairs(serverMsgs) do
+                table.insert(messages, msg)
+            end
+        end
     end
     
     return messages
+end
+
+-- Update server simulation (for host)
+function NetworkAdapter:update(dt)
+    if self.type == NetworkAdapter.TYPE.LAN and self.server then
+        self.server:update(dt)
+    elseif self.type == NetworkAdapter.TYPE.RELAY and self.localServer then
+        self.localServer:update(dt)
+    end
 end
 
 -- Disconnect

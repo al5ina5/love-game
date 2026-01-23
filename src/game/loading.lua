@@ -1,5 +1,5 @@
 -- src/game/loading.lua
--- Loading screen and deferred loading logic
+-- Loading screen and deferred loading logic (SYNC version for reliability)
 
 local Loading = {}
 local WorldCache = require('src.world.world_cache')
@@ -14,18 +14,8 @@ function Loading.draw(loadingProgress, loadingMessage, timerFont)
     local screenW = love.graphics.getWidth()
     local screenH = love.graphics.getHeight()
 
-    -- Use world cache progress if available and more detailed
-    local displayProgress = loadingProgress or 0
-    local displayMessage = loadingMessage or "Loading..."
-
-    -- Check if we have a world cache with more detailed progress
-    if _G.game and _G.game.worldCache and not _G.game.worldCache:isReady() then
-        displayProgress = _G.game.worldCache:getLoadProgress()
-        displayMessage = _G.game.worldCache:getLoadMessage()
-    end
-
-    local text = displayMessage
-    local progress = displayProgress
+    local text = loadingMessage or "Loading..."
+    local progress = loadingProgress or 0
 
     love.graphics.setColor(0, 0, 0, 0.8)
     local textW = font:getWidth(text)
@@ -56,96 +46,108 @@ function Loading.draw(loadingProgress, loadingMessage, timerFont)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
-function Loading.complete(game)
-    local startTime = love.timer.getTime()
-
-    -- Temporarily remove pcall to see if there are errors
-    game.loadingMessage = "Initializing world cache..."
-    game.loadingProgress = 0.1
-
-    -- Initialize world cache for MIYO optimization
-    if not game.worldCache then
-        game.worldCache = WorldCache:new()
-    end
-
-    -- Check initial memory
-    local memBefore = collectgarbage("count")
-
-    game.loadingMessage = "Downloading world data..."
-    game.loadingProgress = 0.2
-
-    -- Download complete world data for MIYO performance
-    -- On desktop, this provides consistency; on MIYO, it's critical for performance
-    local downloadStart = love.timer.getTime()
-    local Constants = require('src.constants')
-
-    -- For MIYO, we might want to skip world cache entirely if it's causing issues
-    local skipWorldCache = Constants.MIYOO_DEVICE and os.getenv("SKIP_WORLD_CACHE") == "1"
-    local cacheSuccess = false
-
-    if skipWorldCache then
-        game.loadingMessage = "Skipping world download..."
-        game.loadingProgress = 0.5
-    else
-        cacheSuccess = game.worldCache:downloadWorldData()
-    end
-
-    local downloadTime = love.timer.getTime() - downloadStart
-
-    if cacheSuccess then
-        game.loadingMessage = "World data loaded!"
-        game.loadingProgress = 0.6
-
-        -- Check memory after download
-        local memAfterDownload = collectgarbage("count")
-
-    else
-        -- Fallback: continue without cached world data
-        print("WARNING: Failed to download world cache, falling back to streaming")
-        game.loadingMessage = "World download failed, using streaming..."
-        game.loadingProgress = 0.4
-    end
-
-    game.loadingMessage = "Loading entities..."
-    game.loadingProgress = 0.7
-
-    local NetworkAdapter = require('src.net.network_adapter')
-    local isLANHost = game.network and game.network.type == NetworkAdapter.TYPE.LAN and game.isHost
-    local isNotConnected = not game.network
-
-    if isLANHost or isNotConnected then
-        -- For local games, create NPCs and animals locally (if not using cache)
-        if not game.worldCache:isReady() then
-            game.loadingMessage = "Creating NPCs..."
-            game.loadingProgress = 0.8
-            game:createNPCs()
+function Loading.update(game, dt)
+    if not game.loadingStarted then
+        game.loadingStarted = true
+        game.loadingProgress = 0.1
+        game.loadingMessage = "Downloading world data..."
+        
+        -- Create worldCache and do SYNC download
+        if not game.worldCache then
+            game.worldCache = WorldCache:new()
         end
-    else
-        -- For networked games, NPCs and animals come from server state or cache
-        game.loadingMessage = "Connecting to server..."
-        game.loadingProgress = 0.8
+        
+        -- Sync download (blocking)
+        local success = game.worldCache:downloadWorldData()
+        
+        if success then
+            game.loadingMessage = "World data received!"
+            game.loadingProgress = 0.5
+            print("Loading: World data downloaded successfully")
+            
+            -- Copy roads/water into world tables
+            if game.world and game.worldCache.worldData and game.worldCache.worldData.chunks then
+                local roadCount = 0
+                local waterCount = 0
+                
+                for chunkKey, chunkData in pairs(game.worldCache.worldData.chunks) do
+                    -- Load roads
+                    if chunkData.roads then
+                        if not game.world.roads[chunkKey] then game.world.roads[chunkKey] = {} end
+                        for tileKey, tileID in pairs(chunkData.roads) do
+                            local lx, ly = tileKey:match("([^,]+),([^,]+)")
+                            lx, ly = tonumber(lx), tonumber(ly)
+                            if lx and ly then
+                                if not game.world.roads[chunkKey][lx] then game.world.roads[chunkKey][lx] = {} end
+                                game.world.roads[chunkKey][lx][ly] = tileID
+                                roadCount = roadCount + 1
+                            end
+                        end
+                    end
+                    
+                    -- Load water
+                    if chunkData.water then
+                        if not game.world.water[chunkKey] then game.world.water[chunkKey] = {} end
+                        for tileKey, tileID in pairs(chunkData.water) do
+                            local lx, ly = tileKey:match("([^,]+),([^,]+)")
+                            lx, ly = tonumber(lx), tonumber(ly)
+                            if lx and ly then
+                                if not game.world.water[chunkKey][lx] then game.world.water[chunkKey][lx] = {} end
+                                game.world.water[chunkKey][lx][ly] = tileID
+                                waterCount = waterCount + 1
+                            end
+                        end
+                    end
+                    
+                    game.world.loadedChunks[chunkKey] = true
+                end
+                
+                game.world.spriteBatchDirty = true
+                print(string.format("Loading: Copied %d roads and %d water tiles to world", roadCount, waterCount))
+            end
+        else
+            game.loadingMessage = "Download failed..."
+            print("Loading: World data download FAILED")
+        end
+        
+        return
     end
-
-    game.loadingMessage = "Finalizing..."
-    game.loadingProgress = 0.9
-
-    -- Check final memory
-    local memFinal = collectgarbage("count")
-
-    -- Network connection moved to after loading completes
-    -- This prevents freeze on low-powered devices like Miyoo
-
+    
+    -- Entity creation
+    if not game.entitiesLoaded then
+        game.loadingMessage = "Loading entities..."
+        game.loadingProgress = 0.7
+        
+        -- Create NPCs locally
+        game:createNPCs()
+        
+        game.entitiesLoaded = true
+        return
+    end
+    
+    -- Finalize
+    if not game.loadingFinalized then
+        game.loadingMessage = "Finalizing..."
+        game.loadingProgress = 0.9
+        
+        local Audio = require('src.systems.audio')
+        pcall(function()
+            Audio:init()
+            Audio:playBGM()
+        end)
+        
+        game.loadingFinalized = true
+        return
+    end
+    
+    -- Complete
     game.loadingProgress = 1.0
     game.loadingComplete = true
     game.loadingMessage = "Ready!"
+end
 
-    local totalTime = love.timer.getTime() - startTime
-
-    local Audio = require('src.systems.audio')
-    pcall(function()
-        Audio:init()
-        Audio:playBGM()
-    end)
+function Loading.complete(game)
+    Loading.update(game, 0)
 end
 
 return Loading

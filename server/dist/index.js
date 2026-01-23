@@ -92,6 +92,28 @@ app.get('/health', (req, res) => {
 app.get('/ping', (req, res) => {
     res.json({ timestamp: Date.now() });
 });
+// World data endpoint - returns complete world data for client pre-loading
+app.get('/api/world-data', (req, res) => {
+    // For now, return a sample room's world data
+    // In a real implementation, this might be based on room code or cached globally
+    const sampleRoomCode = Array.from(rooms.keys())[0]; // Get first room
+    if (!sampleRoomCode) {
+        return res.status(404).json({ error: 'No active rooms' });
+    }
+    const roomData = roomSockets.get(sampleRoomCode);
+    if (!roomData) {
+        return res.status(404).json({ error: 'Room data not found' });
+    }
+    try {
+        // Get complete world data from the game server's chunk manager
+        const worldData = roomData.gameServer.getCompleteWorldData();
+        res.json(worldData);
+    }
+    catch (error) {
+        console.error('[HTTP] Error getting world data:', error);
+        res.status(500).json({ error: 'Failed to get world data' });
+    }
+});
 app.listen(HTTP_PORT, '0.0.0.0', () => {
     console.log(`[HTTP] Matchmaker listening on port ${HTTP_PORT}`);
 });
@@ -150,6 +172,22 @@ const tcpServer = net_1.default.createServer((socket) => {
                         npcParts.push(dialogueJson);
                     }
                     socket.write(npcParts.join('|') + '\n');
+                }
+                // Send Animal data (server-authoritative)
+                const animals = roomData.gameServer.getAnimals();
+                if (animals.length > 0) {
+                    const animalParts = ['animals', animals.length.toString()];
+                    for (const animal of animals) {
+                        animalParts.push(Math.floor(animal.x).toString());
+                        animalParts.push(Math.floor(animal.y).toString());
+                        animalParts.push(animal.spritePath || '');
+                        animalParts.push(animal.name || 'Animal');
+                        animalParts.push(animal.speed.toString());
+                        animalParts.push(Math.floor(animal.groupCenterX).toString());
+                        animalParts.push(Math.floor(animal.groupCenterY).toString());
+                        animalParts.push(Math.floor(animal.groupRadius).toString());
+                    }
+                    socket.write(animalParts.join('|') + '\n');
                 }
                 const stateJson = roomData.gameServer.getStateSnapshot();
                 socket.write(`state|${stateJson}\n`);

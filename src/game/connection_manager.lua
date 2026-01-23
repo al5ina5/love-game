@@ -6,6 +6,7 @@ local Server = require('src.net.server')
 local OnlineClient = require('src.net.online_client')
 local RelayClient = require('src.net.relay_client')
 local NetworkAdapter = require('src.net.network_adapter')
+local json = require('src.lib.dkjson')
 
 local ConnectionManager = {}
 
@@ -94,6 +95,9 @@ function ConnectionManager.update(dt, game)
     
     -- Online-specific updates
     ConnectionManager.updateOnline(dt, game)
+    
+    -- Poll for async networking responses
+    OnlineClient.update()
 end
 
 function ConnectionManager.returnToMainMenu(game)
@@ -127,161 +131,96 @@ end
 
 -- Online multiplayer functions
 
-function ConnectionManager.hostOnline(isPublic, game)
-    print("Connection: hostOnline called with isPublic=" .. tostring(isPublic))
+-- Async hosting
+function ConnectionManager.hostOnlineAsync(isPublic, game, callback)
     if not OnlineClient.isAvailable() then
-        print("Connection: Online multiplayer not available (HTTPS support not found)")
-        if game.menu then
-            game.menu.onlineError = "Online multiplayer requires HTTPS support.\nPlease use LAN multiplayer instead."
-        end
-        return false
+        if callback then callback(false, "HTTPS support not found") end
+        return
     end
-    
-    
+
     local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
     if not success then
-        print("Connection: Failed to initialize online client: " .. tostring(onlineClient))
-        if game.menu then
-            game.menu.onlineError = "Failed to initialize online client"
-        end
-        return false
-    end
-    
-    local roomSuccess, roomCodeOrError = onlineClient:createRoom(isPublic)
-    
-    if not roomSuccess then
-        local errorMsg = roomCodeOrError or "Unknown error"
-        print("Connection: Failed to create online room: " .. tostring(errorMsg))
-        if game.menu then
-            game.menu.onlineError = "Failed to create room: " .. tostring(errorMsg)
-            game.menu.state = game.menu.STATE.CREATE_GAME
-        end
-        return false
-    end
-    
-    local roomCode = roomCodeOrError
-    
-    -- Setup relay client (TCP)
-    local relayClient = RelayClient:new()
-    if not relayClient:connect(roomCode, "host") then
-        print("Connection: Failed to connect to relay server")
-        if game.menu then
-            game.menu.onlineError = "Room created but failed to connect to relay server.\nRoom code: " .. roomCode .. "\n\nYou may need to set up a TCP relay server."
-            game.menu.onlineRoomCode = roomCode  -- Still show the room code
-            game.menu.state = game.menu.STATE.WAITING
-        end
-        -- Don't return false - room was created, just relay failed
-        -- This allows the host to share the room code even if relay isn't working
+        if callback then callback(false, "Failed to initialize online client") end
+        return
     end
 
-    -- Setup network adapter (only if relay connected successfully)
-    if relayClient.connected then
+    onlineClient:requestAsync("POST", onlineClient.apiUrl .. "/api/create-room", json.encode({ isPublic = isPublic or false }), function(roomSuccess, response)
+        if not roomSuccess then
+            if callback then callback(false, response or "Unknown error") end
+            return
+        end
+
+        local roomCode = response.roomCode
+        if not roomCode then
+            if callback then callback(false, "Invalid response from server") end
+            return
+        end
+
+        -- Setup relay client (TCP) - starts in background
+        local relayClient = RelayClient:new()
+        relayClient:connect(roomCode, "host")
+        
+        -- We'll handle the adapter creation in updateOnline once relay is connected
         game.network = NetworkAdapter:createRelay(relayClient)
+
+        game.isHost = true
+        game.playerId = "host"
+        game.connectionManager.onlineClient = onlineClient
         
-        -- For RELAY mode host, create local server with serverLogic (like LAN mode)
-        -- The relay is only for forwarding messages, but host runs game logic locally
-        local Server = require('src.net.server')
-        local localServer = Server:new(nil, "boonsnatch")  -- nil port = don't listen, just game logic
-        if localServer and localServer.serverLogic then
-            game.network.localServer = localServer
-            -- Add host player to game state
-            if game.player then
-                localServer.serverLogic:addPlayer("host", game.player.x, game.player.y)
-                localServer.serverLogic:spawnInitialChests(10)
-                localServer.serverLogic:spawnNPCs()
-                localServer.serverLogic:spawnAnimals()
-            end
-        else
-            print("Connection: WARNING - Failed to create local serverLogic for relay host!")
+        if game.menu then
+            game.menu.onlineRoomCode = roomCode
+            game.menu:hide()
         end
-        
-        -- Host will send PLAYER_JOIN when PAIRED is received (handled in relay_client.lua)
-        -- Don't send immediately - wait for client to connect and receive PAIRED
-    else
-        print("Connection: WARNING - Relay not connected, network adapter not created")
-        -- Still set up basic state so room code is shown
-    end
-    
-    game.isHost = true
-    game.playerId = "host"
-    game.connectionManager.onlineClient = onlineClient -- Keep for heartbeat
-    
-    -- For relay server (online mode), NPCs are server-authoritative
-    -- Server will send NPC data to all clients including the host
-    -- Only create NPCs locally if not using relay server
-    -- Note: Server creates NPCs in game_server.ts, so we don't create them here
-    
-    -- Store room code but hide menu so player can play immediately
-    if game.menu then
-        game.menu.onlineRoomCode = roomCode
-        game.menu:hide()  -- Hide menu so player can play alone until someone joins
+
+        if callback then callback(true, roomCode) end
+    end)
+end
+
+function ConnectionManager.hostOnline(isPublic, game)
+    -- Legacy sync version - eventually remove
+    return ConnectionManager.hostOnlineAsync(isPublic, game)
+end
+
+-- Async joining
+function ConnectionManager.joinOnlineAsync(roomCode, game, callback)
+    if not OnlineClient.isAvailable() then
+        if callback then callback(false, "HTTPS support not found") end
+        return
     end
 
-    return true
+    local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
+    if not success then
+        if callback then callback(false, "Failed to initialize online client") end
+        return
+    end
+
+    onlineClient:requestAsync("POST", onlineClient.apiUrl .. "/api/join-room", json.encode({ roomCode = roomCode:upper() }), function(joinSuccess, response)
+        if not joinSuccess then
+            if callback then callback(false, response or "Check the room code.") end
+            return
+        end
+
+        local relayClient = RelayClient:new()
+        relayClient:connect(roomCode, "client")
+
+        game.network = NetworkAdapter:createRelay(relayClient)
+        game.isHost = false
+        game.playerId = "client"
+        game.connectionManager.onlineClient = onlineClient
+
+        -- PLAYER_JOIN will be sent in updateOnline once relay.connected is true
+        
+        if game.menu then
+            game.menu:hide()
+        end
+
+        if callback then callback(true) end
+    end)
 end
 
 function ConnectionManager.joinOnline(roomCode, game)
-    if not OnlineClient.isAvailable() then
-        print("Connection: Online multiplayer not available (HTTPS support not found)")
-        if game.menu then
-            game.menu.onlineError = "Online multiplayer requires HTTPS support.\nPlease use LAN multiplayer instead."
-        end
-        return false
-    end
-    
-    
-    local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
-    if not success then
-        print("Connection: Failed to initialize online client: " .. tostring(onlineClient))
-        if game.menu then
-            game.menu.onlineError = "Failed to initialize online client"
-        end
-        return false
-    end
-    
-    local joinSuccess, errorMsg = onlineClient:joinRoom(roomCode)
-    
-    if not joinSuccess then
-        print("Connection: Failed to join online room: " .. tostring(errorMsg))
-        if game.menu then
-            game.menu.onlineError = "Failed to join room: " .. (errorMsg or "Check the room code.")
-        end
-        return false
-    end
-    
-    
-    -- Setup relay client (TCP)
-    local relayClient = RelayClient:new()
-    if not relayClient:connect(roomCode, "client") then
-        print("Connection: Failed to connect to relay server")
-        if game.menu then
-            game.menu.onlineError = "Failed to connect to real-time relay server."
-        end
-        return false
-    end
-
-    -- Setup network adapter
-    game.network = NetworkAdapter:createRelay(relayClient)
-    game.isHost = false
-    game.playerId = "client"
-    game.connectionManager.onlineClient = onlineClient
-    
-    -- Notify relay we are ready (client sends PLAYER_JOIN immediately)
-    local Protocol = require('src.net.protocol')
-    local playerX = game.player and game.player.x or 400
-    local playerY = game.player and game.player.y or 300
-    local skin = game.player and game.player.spriteName or nil
-    local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, "client", math.floor(playerX), math.floor(playerY))
-    if skin then
-        encoded = encoded .. "|" .. skin
-    end
-    relayClient:send(encoded)
-    -- Hide menu so client can play immediately
-    if game.menu then
-        game.menu:hide()  -- Hide menu so player can play immediately
-    end
-    
-    return true
+    -- Legacy sync version
+    return ConnectionManager.joinOnlineAsync(roomCode, game)
 end
 
 function ConnectionManager.refreshOnlineRooms(game)
@@ -325,20 +264,48 @@ function ConnectionManager.updateOnline(dt, game)
     end
     
     -- Host: Send PLAYER_JOIN when relay becomes paired (client connected)
-    if game.network and game.network.type == NetworkAdapter.TYPE.RELAY and game.isHost then
+    if game.network and game.network.type == NetworkAdapter.TYPE.RELAY then
         local relayClient = game.network.client
-        if relayClient and relayClient.paired and not cm.hostSentJoin then
-            -- Send PLAYER_JOIN with actual player position and skin
-            local Protocol = require('src.net.protocol')
-            local playerX = game.player and game.player.x or 400
-            local playerY = game.player and game.player.y or 300
-            local skin = game.player and game.player.spriteName or nil
-            local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, "host", math.floor(playerX), math.floor(playerY))
-            if skin then
-                encoded = encoded .. "|" .. skin
+        if relayClient and relayClient.connected then
+            -- Create local server for host if it doesn't exist yet
+            if game.isHost and not game.network.localServer then
+                local Server = require('src.net.server')
+                local localServer = Server:new(nil, "boonsnatch")
+                if localServer and localServer.serverLogic then
+                    game.network.localServer = localServer
+                    if game.player then
+                        localServer.serverLogic:addPlayer("host", game.player.x, game.player.y)
+                        localServer.serverLogic:spawnInitialChests(10)
+                        localServer.serverLogic:spawnNPCs()
+                        localServer.serverLogic:spawnAnimals()
+                    end
+                    print("Connection: Local serverLogic initialized for relay host")
+                end
             end
-            relayClient:send(encoded)
-            cm.hostSentJoin = true
+
+            -- Send PLAYER_JOIN if not sent yet (immediately for client, when paired for host)
+            if not cm.sentJoin then
+                local shouldJoin = false
+                if not game.isHost then
+                    shouldJoin = true -- Client joins immediately
+                elseif relayClient.paired then
+                    shouldJoin = true -- Host joins when opponent joins
+                end
+
+                if shouldJoin then
+                    local Protocol = require('src.net.protocol')
+                    local playerX = game.player and game.player.x or 400
+                    local playerY = game.player and game.player.y or 300
+                    local skin = game.player and game.player.spriteName or nil
+                    local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, game.playerId or (game.isHost and "host" or "client"), math.floor(playerX), math.floor(playerY))
+                    if skin then
+                        encoded = encoded .. "|" .. skin
+                    end
+                    relayClient:send(encoded)
+                    cm.sentJoin = true
+                    print("Connection: PLAYER_JOIN sent (" .. (game.playerId or "unknown") .. ")")
+                end
+            end
         end
     end
 end

@@ -3,6 +3,7 @@
 -- Server-authoritative state that gets synced to clients
 
 local State = {}
+local json = require('src.lib.dkjson')
 State.__index = State
 
 function State:new()

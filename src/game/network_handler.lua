@@ -7,6 +7,7 @@ local RemoteEntityFactory = require('src.game.remote_entity_factory')
 local EntityDataHandler = require('src.game.entity_data_handler')
 
 local NetworkHandler = {}
+local json = require('src.lib.dkjson')
 
 -- Message handler registry
 local messageHandlers = {}
@@ -162,6 +163,12 @@ local function processStateSnapshot(state, game)
         EntityDataHandler.handleAnimalsDataFromState(state.animals, game)
     end
     
+    -- Critical: Don't process remote players until we know our own ID
+    -- This prevents the "ghost player" issue where we render ourselves as a remote player
+    if not game.playerId then
+        return
+    end
+    
     if state.players then
         for playerId, playerData in pairs(state.players) do
             if playerId ~= game.playerId then
@@ -289,11 +296,50 @@ end
 -- Note: Protocol.MSG.EXTRACTION is "extract", so it already has a handler above
 -- We don't need to register it again to avoid overwriting the handler
 
-messageHandlers[Protocol.MSG.CHUNK_DATA] = function(msg, game)
+-- Request chunk handler (Server-side handling on Host)
+NetworkHandler.registerHandler(Protocol.MSG.REQUEST_CHUNK, function(msg, game)
+    if not game.isHost or not game.network then return end
+    
+    -- Request format: type|cx|cy
+    -- It is sent as network:send(Protocol.MSG.REQUEST_CHUNK, tx, ty)
+    -- So parts will be ["req_chunk", tx, ty]
+    local cx, cy
+    if msg.cx and msg.cy then
+        cx, cy = tonumber(msg.cx), tonumber(msg.cy)
+    else
+        -- Manually decode if not already decoded by Protocol.decode
+        -- Protocol.decode for unknown types returns {type=msgType}
+        -- We need to check if there are numeric indices
+        cx = tonumber(msg[2])
+        cy = tonumber(msg[3])
+    end
+    
+    if not cx or not cy then return end
+    
+    -- Get chunk data from local server logic
+    local serverLogic = nil
+    if game.network.type == "lan" and game.network.server then
+        serverLogic = game.network.server.serverLogic
+    elseif game.network.type == "relay" and game.network.localServer then
+        serverLogic = game.network.localServer.serverLogic
+    end
+    
+    if serverLogic then
+        local chunkData = serverLogic:getChunkData(cx, cy)
+        local json = require("src.lib.dkjson")
+        local encodedData = json.encode(chunkData)
+        
+        -- Send response
+        game.network:send(Protocol.MSG.CHUNK_DATA, cx, cy, encodedData)
+    end
+end)
+
+-- Chunk data handler (Client-side)
+NetworkHandler.registerHandler(Protocol.MSG.CHUNK_DATA, function(msg, game)
     if game.world and msg.cx and msg.cy and msg.data then
         game.world:loadChunkData(msg.cx, msg.cy, msg.data)
     end
-end
+end)
 
 -- Handle NPCs message from server
 messageHandlers["npcs"] = function(msg, game)

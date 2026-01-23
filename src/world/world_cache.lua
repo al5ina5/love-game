@@ -17,6 +17,10 @@ function WorldCache:new()
     self.isLoaded = false
     self.loadProgress = 0
     self.loadMessage = "Preparing..."
+    self.loadingAsync = false
+    self.processingAsync = false
+    self.processingStep = 0
+    self.processingIndex = 0
 
     -- Spatial index for fast object lookups (will be populated after loading)
     self.spatialIndex = {
@@ -29,88 +33,252 @@ function WorldCache:new()
     return self
 end
 
--- Download complete world data from server
+-- Download complete world data from server SYNCHRONOUSLY
 function WorldCache:downloadWorldData()
     self.loadProgress = 0
-    self.loadMessage = "Connecting to server..."
+    self.loadMessage = "Connecting..."
+    
+    local OnlineClient = require('src.net.online_client')
+    local onlineClient = nil
+    local success, err = pcall(function()
+        onlineClient = OnlineClient:new()
+    end)
+    
+    if not success or not onlineClient then
+        print("WorldCache: Failed to init OnlineClient: " .. tostring(err))
+        return false
+    end
 
-    -- Get API URL
     local apiUrl = Constants.API_BASE_URL .. "/api/world-data"
-
-    -- Create HTTP request with timeout for MIYO
-    local timeout = Constants.MIYOO_DEVICE and 10 or 30  -- MIYO: 10 seconds, Desktop: 30 seconds
-    local startTime = love.timer.getTime()
-    local http = require('src.net.simple_http')
-
-    -- For MIYO, try a simpler approach first
-    local success
-    local httpSuccess, responseData
-    if Constants.MIYOO_DEVICE then
-        success, httpSuccess, responseData = pcall(function()
-            -- Try with shorter timeout
-            return http.get(apiUrl, timeout)
-        end)
-    else
-        success, httpSuccess, responseData = pcall(function()
-            return http.get(apiUrl)
-        end)
-    end
-
-    local downloadTime = love.timer.getTime() - startTime
-
-    -- Check for timeout
-    if downloadTime > timeout then
+    print("WorldCache: Requesting world data (SYNC): " .. apiUrl)
+    
+    local ok, data = onlineClient:httpRequest("GET", apiUrl, nil)
+    
+    if not ok then
+        print("WorldCache: Sync download failed: " .. tostring(data))
         return false
     end
-
-    if not success then
-        print("ERROR: Failed to download world data: " .. tostring(httpSuccess))
-        return false
-    end
-
-    if not httpSuccess then
-        print("ERROR: HTTP request failed: " .. tostring(responseData))
-        return false
-    end
-
-    if not responseData then
-        print("ERROR: No response data from server")
-        return false
-    end
-
-        -- Show first few keys
-        local keys = {}
-        for k, v in pairs(responseData) do
-            table.insert(keys, tostring(k))
-            if #keys >= 5 then break end
+    
+    self.worldData = data
+    
+    -- Log chunk data stats
+    if data and data.chunks then
+        local totalRoads = 0
+        local totalWater = 0
+        local chunkCount = 0
+        for chunkKey, chunkData in pairs(data.chunks) do
+            chunkCount = chunkCount + 1
+            if chunkData.roads then
+                for _ in pairs(chunkData.roads) do totalRoads = totalRoads + 1 end
+            end
+            if chunkData.water then
+                for _ in pairs(chunkData.water) do totalWater = totalWater + 1 end
+            end
         end
-    -- For table responses, count keys (SimpleHTTP already decoded JSON)
-    local responseSize = 0
-    if type(responseData) == "table" then
-        for k, v in pairs(responseData) do responseSize = responseSize + 1 end
-    else
-        responseSize = #responseData
+        print(string.format("WorldCache: Received %d chunks with %d roads, %d water tiles", chunkCount, totalRoads, totalWater))
+    end
+    
+    -- Hydrate NPCs immediately (not async)
+    if self.worldData.npcs then
+        local NPC = require('src.entities.npc')
+        local hydratedNpcs = {}
+        for i, npc in ipairs(self.worldData.npcs) do
+            local hydratedNpc = NPC:new(
+                npc.x or 0,
+                npc.y or 0,
+                npc.spritePath or "",
+                npc.name or "NPC",
+                npc.dialogue or {}
+            )
+            hydratedNpc.id = npc.id or ("npc_" .. i)
+            table.insert(hydratedNpcs, hydratedNpc)
+        end
+        self.worldData.npcs = hydratedNpcs
+        print("WorldCache: Hydrated " .. #hydratedNpcs .. " NPCs")
+    end
+    
+    self.isLoaded = true
+    self.loadProgress = 1.0
+    self.loadMessage = "World ready!"
+    
+    return true
+end
+
+
+-- Download complete world data from server asynchronously
+function WorldCache:downloadWorldDataAsync(callback)
+    self.loadProgress = 0
+    self.loadMessage = "Connecting..."
+    self.loadingAsync = true
+    
+    local OnlineClient = require('src.net.online_client')
+    local onlineClient = nil
+    local success, err = pcall(function()
+        onlineClient = OnlineClient:new()
+    end)
+    
+    if not success or not onlineClient then
+        self.loadingAsync = false
+        if callback then callback(false, "Failed to init OnlineClient") end
+        return
     end
 
-    self.loadProgress = 0.3
-    self.loadMessage = "Processing world data..."
+    local apiUrl = Constants.API_BASE_URL .. "/api/world-data"
+    print("WorldCache: Requesting world data asynchronously: " .. apiUrl)
+    
+    onlineClient:requestAsync("GET", apiUrl, nil, function(ok, data)
+        self.loadingAsync = false
+        if not ok then
+            print("WorldCache: Async download failed: " .. tostring(data))
+            if callback then callback(false, data) end
+            return
+        end
+        
+        self.worldData = data
+        
+        -- DEBUG: Log chunk data stats
+        if data and data.chunks then
+            local totalRoads = 0
+            local totalWater = 0
+            local chunkCount = 0
+            for chunkKey, chunkData in pairs(data.chunks) do
+                chunkCount = chunkCount + 1
+                if chunkData.roads then
+                    for _ in pairs(chunkData.roads) do totalRoads = totalRoads + 1 end
+                end
+                if chunkData.water then
+                    for _ in pairs(chunkData.water) do totalWater = totalWater + 1 end
+                end
+            end
+            print(string.format("WorldCache DEBUG: Received %d chunks with %d roads, %d water tiles", chunkCount, totalRoads, totalWater))
+        end
+        
+        self.processingAsync = true
+        self.processingStep = 1 -- Start hydration
+        self.processingIndex = 1
+        self.onComplete = callback
+        self.loadProgress = 0.5
+        self.loadMessage = "Processing world data..."
+    end)
+end
 
-    -- SimpleHTTP already parsed the JSON, so responseData is ready to use
-    -- But we still need to validate it's the expected structure
-    if type(responseData) ~= "table" then
-        print("ERROR: Expected table response from server, got " .. type(responseData))
+function WorldCache:update(dt)
+    if not self.processingAsync then return end
+    
+    local startTime = love.timer.getTime()
+    local maxTime = 0.008 -- Aim for 8ms per frame to keep 60fps
+    
+    while love.timer.getTime() - startTime < maxTime do
+        if self.processingStep == 1 then
+            -- Hydration slice
+            if self:hydrateSlice() then
+                self.processingStep = 2
+                self.processingIndex = 1
+                self.loadMessage = "Building spatial index..."
+            end
+        elseif self.processingStep == 2 then
+            -- Spatial index slice
+            if self:buildSpatialIndexSlice() then
+                self.isLoaded = true
+                self.processingAsync = false
+                self.loadProgress = 1.0
+                self.loadMessage = "World ready!"
+                if self.onComplete then self.onComplete(true) end
+                break
+            end
+        else
+            break
+        end
+    end
+end
+
+function WorldCache:hydrateSlice()
+    if not self.worldData then return true end
+    
+    local sliceSize = 20
+    
+    -- Initialize hydration state on first call
+    if not self.hydratingNpcs then
+        self.hydratingNpcs = {}
+        self.npcsToHydrate = self.worldData.npcs or {}
+        self.processingIndex = 1
+    end
+    
+    -- Hydrate NPCs to separate table (avoids race condition with renderer)
+    if self.processingIndex <= #self.npcsToHydrate then
+        for i = 1, sliceSize do
+            if self.processingIndex > #self.npcsToHydrate then break end
+            
+            local npc = self.npcsToHydrate[self.processingIndex]
+            local hydratedNpc = NPC:new(
+                npc.x or 0,
+                npc.y or 0,
+                npc.spritePath or "",
+                npc.name or "NPC",
+                npc.dialogue or {}
+            )
+            hydratedNpc.id = npc.id or ("npc_" .. self.processingIndex)
+            table.insert(self.hydratingNpcs, hydratedNpc)
+            self.processingIndex = self.processingIndex + 1
+        end
         return false
     end
+    
+    -- All NPCs hydrated - atomic swap to prevent renderer seeing partial data
+    if self.hydratingNpcs then
+        self.worldData.npcs = self.hydratingNpcs
+        self.hydratingNpcs = nil
+        self.npcsToHydrate = nil
+    end
+    
+    return true -- Done with hydration
+end
 
-    print("WorldCache: JSON already parsed by SimpleHTTP")
 
-    self.loadProgress = 0.5
-    self.loadMessage = "Processing world data..."
+function WorldCache:buildSpatialIndexSlice()
+    if not self.worldData or not self.worldData.chunks then return true end
+    
+    -- Collect chunk keys if not done
+    if not self.chunkKeys then
+        self.chunkKeys = {}
+        for k, _ in pairs(self.worldData.chunks) do
+            table.insert(self.chunkKeys, k)
+        end
+    end
 
-    -- Store the world data
-    self.worldData = responseData
-    self.isLoaded = true
+    local sliceSize = 5
+    for i = 1, sliceSize do
+        local idx = self.processingIndex
+        if idx > #self.chunkKeys then 
+            self.chunkKeys = nil
+            return true 
+        end
+        
+        local chunkKey = self.chunkKeys[idx]
+        local chunkData = self.worldData.chunks[chunkKey]
+        
+        -- Index objects in this chunk
+        if chunkData.trees then
+            for _, tree in ipairs(chunkData.trees) do
+                self:addToSpatialIndex("trees", tree.x, tree.y, tree)
+            end
+        end
+        if chunkData.rocks then
+            for _, rock in ipairs(chunkData.rocks) do
+                self:addToSpatialIndex("rocks", rock.x, rock.y, rock)
+            end
+        end
+        
+        self.processingIndex = self.processingIndex + 1
+    end
+    
+    self.loadProgress = 0.6 + (0.3 * (self.processingIndex / #self.chunkKeys))
+    return false
+end
 
+function WorldCache:hydrateData()
+    if not self.worldData then return end
+    
     -- Hydrate NPCs
     if self.worldData.npcs then
         local hydratedNpcs = {}
@@ -128,51 +296,25 @@ function WorldCache:downloadWorldData()
         self.worldData.npcs = hydratedNpcs
     end
 
-    -- Hydrate Animals
-    if self.worldData.animals then
-        local hydratedAnimals = {}
-        for i, animal in ipairs(self.worldData.animals) do
-            local hydratedAnimal = Animal:new(
-                animal.x or 0,
-                animal.y or 0,
-                animal.spritePath or "",
-                animal.name or "Animal",
-                animal.speed or 30
-            )
-            hydratedAnimal.id = animal.id or ("animal_" .. i)
-            if animal.groupCenterX and animal.groupCenterY and animal.groupRadius then
-                hydratedAnimal:setGroupCenter(animal.groupCenterX, animal.groupCenterY, animal.groupRadius)
-            end
-            table.insert(hydratedAnimals, hydratedAnimal)
-        end
-        self.worldData.animals = hydratedAnimals
-    end
-
-    -- Log world data stats before spatial indexing
-    local chunkCount = self:getChunkCount()
-    local npcCount = self.worldData.npcs and #self.worldData.npcs or 0
-    local animalCount = self.worldData.animals and #self.worldData.animals or 0
-
-    -- Check memory usage before spatial indexing
-    local memBefore = collectgarbage("count")
-
-    self.loadProgress = 0.7
-    self.loadMessage = "Building spatial index..."
-
-    -- Build spatial index for fast lookups
-    local indexStart = love.timer.getTime()
-    self:buildSpatialIndex()
-    local indexTime = love.timer.getTime() - indexStart
-
-    -- Check memory usage after spatial indexing
-    local memAfter = collectgarbage("count")
-
-    self.loadProgress = 1.0
-    self.loadMessage = "World ready!"
-
-    local totalTime = love.timer.getTime() - startTime
-
-    return true
+    -- Hydrate Animals (Disabled for performance)
+    -- if self.worldData.animals then
+    --     local hydratedAnimals = {}
+    --     for i, animal in ipairs(self.worldData.animals) do
+    --         local hydratedAnimal = Animal:new(
+    --             animal.x or 0,
+    --             animal.y or 0,
+    --             animal.spritePath or "",
+    --             animal.name or "Animal",
+    --             animal.speed or 30
+    --         )
+    --         hydratedAnimal.id = animal.id or ("animal_" .. i)
+    --         if animal.groupCenterX and animal.groupCenterY and animal.groupRadius then
+    --             hydratedAnimal:setGroupCenter(animal.groupCenterX, animal.groupCenterY, animal.groupRadius)
+    --         end
+    --         table.insert(hydratedAnimals, hydratedAnimal)
+    --     end
+    --     self.worldData.animals = hydratedAnimals
+    -- end
 end
 
 -- Build spatial index for fast object lookups by position
@@ -272,6 +414,18 @@ function WorldCache:buildSpatialIndex()
     for _, cell in pairs(self.spatialIndex.animals) do gridCells = gridCells + 1 end
 
     print("WorldCache: Spatial index uses " .. gridCells .. " grid cells")
+end
+
+-- Add an object to the spatial index
+function WorldCache:addToSpatialIndex(objectType, x, y, obj)
+    local key = self:getSpatialKey(x, y)
+    if not self.spatialIndex[objectType] then
+        self.spatialIndex[objectType] = {}
+    end
+    if not self.spatialIndex[objectType][key] then
+        self.spatialIndex[objectType][key] = {}
+    end
+    table.insert(self.spatialIndex[objectType][key], obj)
 end
 
 -- Get spatial key for position (grid-based for fast lookups)

@@ -835,6 +835,16 @@ function World:drawFloor(camera, worldCache)
     end
 
     -- 2. Draw Road and Water on Top
+    -- DEBUG: One-time check if roads table has data
+    if not self.debugRoadsChecked then
+        self.debugRoadsChecked = true
+        local roadChunks = 0
+        for k, v in pairs(self.roads) do
+            roadChunks = roadChunks + 1
+        end
+        print("DEBUG drawFloor: roads table has " .. roadChunks .. " chunks")
+    end
+    
     if self.tilesetImage then
         love.graphics.setColor(1, 1, 1, 1)
         for ty = startY, endY do
@@ -842,31 +852,22 @@ function World:drawFloor(camera, worldCache)
                 local roadTileID = nil
                 local waterTileID = nil
 
-                -- Use world cache if available (MIYO optimization)
-                if worldCache and worldCache:isReady() then
-                    -- Get chunk for this tile
-                    local chunkSize = self.chunkSize / TILE_SIZE  -- Convert to tile units
-                    local chunkX = math.floor(tx / chunkSize)
-                    local chunkY = math.floor(ty / chunkSize)
-                    local chunk = worldCache:getChunk(chunkX, chunkY)
-
-                    if chunk then
-                        -- Get local tile coordinates within chunk
-                        local localTileX = tx % chunkSize
-                        local localTileY = ty % chunkSize
-
-                        -- Get road and water tiles from cached chunk
-                        if chunk.roads then
-                            roadTileID = chunk.roads[string.format("%d,%d", localTileX, localTileY)]
-                        end
-                        if chunk.water then
-                            waterTileID = chunk.water[string.format("%d,%d", localTileX, localTileY)]
-                        end
-                    end
-                else
-                    -- Fallback to old generators
-                    roadTileID = self.roadGenerator:getRoadTile(tx, ty)
-                    waterTileID = self.waterGenerator:getWaterTile(tx, ty)
+                -- Use chunk-loaded road/water data (from worldCache or network)
+                local chunkSize = self.chunkSize / TILE_SIZE  -- Convert to tile units (32)
+                local chunkX = math.floor(tx / chunkSize)
+                local chunkY = math.floor(ty / chunkSize)
+                local chunkKey = chunkX .. "," .. chunkY
+                local localTileX = tx % chunkSize
+                local localTileY = ty % chunkSize
+                
+                -- Check self.roads table (populated from worldCache or network)
+                if self.roads[chunkKey] and self.roads[chunkKey][localTileX] then
+                    roadTileID = self.roads[chunkKey][localTileX][localTileY]
+                end
+                
+                -- Check self.water table
+                if self.water[chunkKey] and self.water[chunkKey][localTileX] then
+                    waterTileID = self.water[chunkKey][localTileX][localTileY]
                 end
 
                 -- Draw Road

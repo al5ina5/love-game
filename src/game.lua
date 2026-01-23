@@ -20,6 +20,7 @@ local Loading = require('src.game.loading')
 local Interaction = require('src.game.interaction')
 local EntitySpawner = require('src.game.entity_spawner')
 local NetworkUpdater = require('src.game.network_updater')
+local OnlineClient = require('src.net.online_client')
 local Constants = require('src.constants')
 
 local WORLD_W, WORLD_H = 5000, 5000
@@ -131,7 +132,7 @@ function Game:load()
     self.world:generateTrees(seedValue)
 
     self.npcs = {}
-    self.animals = {}
+    self.animals = {} -- Keeping the table empty
 
     -- NPCs and animals are now loaded dynamically in renderer to avoid loading thousands of entities
     -- They come from server state for networked games, or from world cache for spatial queries
@@ -162,6 +163,9 @@ function Game:load()
 end
 
 function Game:update(dt)
+    -- Poll for background networking tasks (important for async world data download)
+    OnlineClient.update()
+
     if not self.loadingComplete then
         -- Emergency timeout for MIYO loading
         self.loadingTimer = (self.loadingTimer or 0) + dt
@@ -177,7 +181,7 @@ function Game:update(dt)
         end
 
         Input:update()
-        Loading.complete(self)
+        Loading.update(self, dt)
         return
     end
     
@@ -521,36 +525,39 @@ function Game:createAnimalGroups()
 end
 
 function Game:autoJoinOrCreateServer()
-    pcall(function()
-        local OnlineClient = require('src.net.online_client')
-        if not OnlineClient.isAvailable() then
-            return
-        end
-        
-        local onlineClient = nil
-        local initSuccess = pcall(function()
-            onlineClient = OnlineClient.new(OnlineClient)
-        end)
-        
-        if not initSuccess or not onlineClient then
-            return
-        end
-        
-        local rooms = onlineClient:listRooms()
-        
-        local roomToJoin = nil
-        for _, room in ipairs(rooms) do
-            if room.players and room.maxPlayers and room.players < room.maxPlayers then
-                roomToJoin = room
-                break
+    local OnlineClient = require('src.net.online_client')
+    if not OnlineClient.isAvailable() then
+        return
+    end
+    
+    local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
+    if not success or not onlineClient then
+        return
+    end
+    
+    print("Game: Listing rooms asynchronously...")
+    onlineClient:requestAsync("GET", onlineClient.apiUrl .. "/api/list-rooms", nil, function(success, response)
+        -- Handle success case with rooms
+        if success and response and response.rooms then
+            local rooms = response.rooms
+            local roomToJoin = nil
+            for _, room in ipairs(rooms) do
+                if room.players and room.maxPlayers and room.players < room.maxPlayers then
+                    roomToJoin = room
+                    break
+                end
+            end
+            
+            if roomToJoin then
+                print("Game: Joining room " .. roomToJoin.code .. " asynchronously...")
+                ConnectionManager.joinOnlineAsync(roomToJoin.code, self)
+                return
             end
         end
         
-        if roomToJoin then
-            ConnectionManager.joinOnline(roomToJoin.code, self)
-        else
-            ConnectionManager.hostOnline(true, self)
-        end
+        -- Fallback: If request failed (e.g. 404 No Rooms), reached here = no suitable rooms
+        print("Game: No suitable rooms found or error, hosting asynchronously...")
+        ConnectionManager.hostOnlineAsync(true, self)
     end)
 end
 

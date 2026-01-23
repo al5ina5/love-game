@@ -10,6 +10,10 @@ local Constants = require("src.constants")
 local RelayClient = {}
 RelayClient.__index = RelayClient
 
+local dnsThread = nil
+local dnsRequestChannel = nil
+local dnsResponseChannel = nil
+
 function RelayClient:new()
     local self = setmetatable({}, RelayClient)
     self.tcp = nil
@@ -34,6 +38,8 @@ function RelayClient:new()
     self.lastPingTime = 0
     self.pendingPing = nil  -- {timestamp, sent_time}
     self.lastPacketSentTime = 0  -- Track when we last sent any packet
+    self.connecting = false
+    self.connectStartTime = 0
 
     return self
 end
@@ -41,68 +47,140 @@ end
 function RelayClient:connect(roomCode, playerId)
     self.roomCode = roomCode:upper()
     self.playerId = playerId -- "host" or "client"
+    self.connecting = true
+    self.connected = false
     
-    
-    -- Resolve hostname to IP to avoid some luasocket issues with DNS
-    local ip = socket.dns.toip(Constants.RELAY_HOST)
-    if not ip then
-        print("RelayClient: Could not resolve hostname: " .. Constants.RELAY_HOST)
-        return false
+    -- Start DNS resolution in background if needed
+    if not dnsThread then
+        dnsThread = love.thread.newThread("src/net/dns_thread.lua")
+        dnsThread:start()
+        dnsRequestChannel = love.thread.getChannel("dns_request")
+        dnsResponseChannel = love.thread.getChannel("dns_response")
     end
+    
+    dnsRequestChannel:push(Constants.RELAY_HOST)
+    print("RelayClient: DNS resolution requested for " .. Constants.RELAY_HOST)
+    
+    return true -- Indicate we've started connecting
+end
 
-    local tcp, err = socket.tcp()
-    if not tcp then
-        print("RelayClient: Failed to create socket: " .. tostring(err))
-        return false
+function RelayClient:updateConnecting()
+    if not self.connecting then return end
+    
+    -- Check for DNS response
+    local res = dnsResponseChannel:pop()
+    if res and res.hostname == Constants.RELAY_HOST then
+        local ip = res.ip
+        if not ip then
+            print("RelayClient: Could not resolve hostname: " .. Constants.RELAY_HOST)
+            self.connecting = false
+            return
+        end
+        
+        print("RelayClient: DNS resolved to " .. ip .. ", connecting...")
+        
+        local tcp, err = socket.tcp()
+        if not tcp then
+            print("RelayClient: Failed to create socket: " .. tostring(err))
+            self.connecting = false
+            return
+        end
+        
+        tcp:settimeout(0) 
+        local success, connectErr = tcp:connect(ip, Constants.RELAY_PORT)
+        
+        if not success and connectErr ~= "timeout" and connectErr ~= "Operation already in progress" then
+            print("RelayClient: Connection failed: " .. tostring(connectErr))
+            self.connecting = false
+            return
+        end
+        
+        self.tcp = tcp
+        self.connectStartTime = love.timer.getTime()
     end
     
-    -- Use non-blocking connect pattern for better reliability across OSs
-    tcp:settimeout(0) 
-    local success, connectErr = tcp:connect(ip, Constants.RELAY_PORT)
-    
-    -- "timeout" or "Operation already in progress" means it's connecting in background
-    if not success and connectErr ~= "timeout" and connectErr ~= "Operation already in progress" then
-        print("RelayClient: Connection failed immediately: " .. tostring(connectErr))
-        return false
-    end
-    
-    -- Wait for the socket to become writable (indicates connection success)
-    local retries = 0
-    local connected = false
-    while retries < 5 and not connected do
-        local _, writable, selectErr = socket.select(nil, {tcp}, 1) -- 1 second per check
+    -- If we have a TCP socket but not yet connected, check for writability
+    if self.tcp and not self.connected then
+        local _, writable, _ = socket.select(nil, {self.tcp}, 0)
         if writable and #writable > 0 then
-            connected = true
-        else
-            retries = retries + 1
+            print("RelayClient: TCP connection established!")
+            self.tcp:setoption("tcp-nodelay", true)
+            self.tcp:settimeout(0)
+            self.connected = true
+            self.connecting = false
+            
+            -- Send handshake
+            self:send("JOIN:" .. self.roomCode)
+        elseif love.timer.getTime() - (self.connectStartTime or 0) > 10 then
+            print("RelayClient: Connection timed out")
+            self.tcp:close()
+            self.tcp = nil
+            self.connecting = false
         end
     end
+end
+
+function RelayClient:updateConnecting()
+    if not self.connecting then return end
     
-    if not connected then
-        print("RelayClient: Connection timed out or failed")
-        tcp:close()
-        return false
+    -- Check for DNS response
+    local res = dnsResponseChannel:pop()
+    if res and res.hostname == Constants.RELAY_HOST then
+        local ip = res.ip
+        if not ip then
+            print("RelayClient: Could not resolve hostname: " .. Constants.RELAY_HOST)
+            self.connecting = false
+            return
+        end
+        
+        print("RelayClient: DNS resolved to " .. ip .. ", connecting...")
+        
+        local tcp, err = socket.tcp()
+        if not tcp then
+            print("RelayClient: Failed to create socket: " .. tostring(err))
+            self.connecting = false
+            return
+        end
+        
+        tcp:settimeout(0) 
+        local success, connectErr = tcp:connect(ip, Constants.RELAY_PORT)
+        
+        if not success and connectErr ~= "timeout" and connectErr ~= "Operation already in progress" then
+            print("RelayClient: Connection failed: " .. tostring(connectErr))
+            self.connecting = false
+            return
+        end
+        
+        self.tcp = tcp
+        self.connectStartTime = love.timer.getTime()
     end
     
-    -- Connection successful
-    tcp:setoption("tcp-nodelay", true)
-    tcp:settimeout(0)  -- Non-blocking for polling
-    self.tcp = tcp
-    self.connected = true
-    
-    -- Send handshake immediately
-    local success, err = self:send("JOIN:" .. self.roomCode)
-    if not success then
-        print("RelayClient: Failed to send JOIN message: " .. tostring(err))
-        tcp:close()
-        self.connected = false
-        return false
+    -- If we have a TCP socket but not yet connected, check for writability
+    if self.tcp and not self.connected then
+        local _, writable, _ = socket.select(nil, {self.tcp}, 0)
+        if writable and #writable > 0 then
+            print("RelayClient: TCP connection established!")
+            self.tcp:setoption("tcp-nodelay", true)
+            self.tcp:settimeout(0)
+            self.connected = true
+            self.connecting = false
+            
+            -- Send handshake
+            self:send("JOIN:" .. self.roomCode)
+        elseif self.connectStartTime and love.timer.getTime() - self.connectStartTime > 10 then
+            print("RelayClient: Connection timed out")
+            self.tcp:close()
+            self.tcp = nil
+            self.connecting = false
+        end
     end
-    
-    return true
 end
 
 function RelayClient:poll()
+    if self.connecting then
+        self:updateConnecting()
+    end
+    
     if not self.connected or not self.tcp then return {} end
 
     local messages = {}

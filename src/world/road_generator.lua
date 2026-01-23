@@ -80,8 +80,20 @@ function RoadGenerator:findPath(startX, startY, endX, endY)
     local costSoFar = {}
 
     local function push(queue, item, priority)
-        table.insert(queue, {item = item, priority = priority})
-        table.sort(queue, function(a, b) return a.priority < b.priority end) -- Low priority first
+        local low = 1
+        local high = #queue
+        local pos = #queue + 1
+        
+        while low <= high do
+            local mid = math.floor((low + high) / 2)
+            if queue[mid].priority > priority then
+                pos = mid
+                high = mid - 1
+            else
+                low = mid + 1
+            end
+        end
+        table.insert(queue, pos, {item = item, priority = priority})
     end
 
     local function pop(queue)

@@ -556,9 +556,10 @@ export class WorldGenerator {
 
     // --- Animals ---
     private generateAnimals() {
-        console.log('[WorldGenerator] Generating animals...');
-        this.animalManager = new AnimalManager(12345, this.waterMap);
-        this.animalManager.generate();
+        // DISABLED for performance testing
+        console.log('[WorldGenerator] Animals DISABLED for performance');
+        // this.animalManager = new AnimalManager(12345, this.waterMap);
+        // this.animalManager.generate();
     }
 
     public getAnimalManager(): AnimalManager | null {

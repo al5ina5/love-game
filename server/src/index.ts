@@ -121,23 +121,17 @@ app.get('/ping', (req: Request, res: Response) => {
   res.json({ timestamp: Date.now() });
 });
 
+// --- Default Game Server (Global World) ---
+// Initialize a global game server to serve world-data even when no rooms exist
+const defaultGameServer = new GameServer();
+console.log('[SERVER] Default GameServer initialized for world-data');
+
 // World data endpoint - returns complete world data for client pre-loading
 app.get('/api/world-data', (req: Request, res: Response) => {
-  // For now, return a sample room's world data
-  // In a real implementation, this might be based on room code or cached globally
-  const sampleRoomCode = Array.from(rooms.keys())[0]; // Get first room
-  if (!sampleRoomCode) {
-    return res.status(404).json({ error: 'No active rooms' });
-  }
-
-  const roomData = roomSockets.get(sampleRoomCode);
-  if (!roomData) {
-    return res.status(404).json({ error: 'Room data not found' });
-  }
-
   try {
-    // Get complete world data from the game server's chunk manager
-    const worldData = roomData.gameServer.getCompleteWorldData();
+    // Always return the default world data
+    // This ensures clients get road/water data immediately upon loading
+    const worldData = defaultGameServer.getCompleteWorldData();
     res.json(worldData);
   } catch (error) {
     console.error('[HTTP] Error getting world data:', error);

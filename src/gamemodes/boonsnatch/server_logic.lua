@@ -5,6 +5,7 @@
 local State = require('src.gamemodes.boonsnatch.state')
 local Protocol = require('src.net.protocol')
 local Constants = require('src.constants')
+local RoadGenerator = require('src.world.road_generator')
 
 local ServerLogic = {}
 ServerLogic.__index = ServerLogic
@@ -29,7 +30,96 @@ function ServerLogic:new(worldWidth, worldHeight)
     self.stateBroadcastInterval = 1.0 / 20  -- 20 times per second
     self.lastStateBroadcast = 0
     
+    -- World Data (Roads, Trees, etc.)
+    self.roads = {}
+    self.trees = {}  -- Sparse table: map[chunkKey] = { {x, y, variation}, ... }
+    self.chunkSize = 512
+    
+    -- Mock world for RoadGenerator
+    local mockWorld = {
+        roads = self.roads,
+        worldWidth = self.worldWidth,
+        worldHeight = self.worldHeight,
+        chunkSize = self.chunkSize
+    }
+    self.roadGenerator = RoadGenerator:new(mockWorld)
+    
+    -- Generate initial world features
+    self:generateRoads()
+    self:generateTrees(seedValue or 12345)
+    
     return self
+end
+
+function ServerLogic:generateRoads()
+    print("ServerLogic: Generating road network...")
+    local pointsOfInterest = {
+        {x = self.worldWidth * 0.15, y = self.worldHeight * 0.15},
+        {x = self.worldWidth * 0.85, y = self.worldHeight * 0.2},
+        {x = self.worldWidth * 0.5, y = self.worldHeight * 0.5}, -- Center
+        {x = self.worldWidth * 0.2, y = self.worldHeight * 0.8},
+        {x = self.worldWidth * 0.8, y = self.worldHeight * 0.8}
+    }
+    self.roadGenerator:generateRoadNetwork(pointsOfInterest, 12345)
+end
+
+function ServerLogic:getChunkData(cx, cy)
+    local chunkKey = cx .. "," .. cy
+    local chunkRoads = self.roads[chunkKey] or {}
+    local treeData = self.trees[chunkKey] or {}
+    
+    -- Format for Protocol.MSG.CHUNK_DATA
+    -- { roads = { ["lx,ly"] = tileID, ... } }
+    local roadsData = {}
+    for lx, col in pairs(chunkRoads) do
+        for ly, tileID in pairs(col) do
+            roadsData[lx .. "," .. ly] = tileID
+        end
+    end
+    
+    return {
+        cx = cx,
+        cy = cy,
+        roads = roadsData,
+        water = {}, -- TODO: Generate water if needed
+        rocks = {},
+        trees = treeData
+    }
+end
+
+function ServerLogic:generateTrees(seed)
+    math.randomseed(seed or os.time())
+    local WORLD_W, WORLD_H = self.worldWidth, self.worldHeight
+    local TILE_SIZE = 16
+    
+    -- Variations from World.lua
+    local variations = {"standard", "purple", "blue", "alien", "white", "red_white", "all_white"}
+    
+    -- Density based generation
+    for i = 1, 500 do
+        local x = math.random(50, WORLD_W - 50)
+        local y = math.random(50, WORLD_H - 50)
+        
+        -- Check if it's on a road (don't spawn trees on roads)
+        local tileX = math.floor(x / TILE_SIZE)
+        local tileY = math.floor(y / TILE_SIZE)
+        if not self.roadGenerator:getRoadTile(tileX, tileY) then
+            local variation = variations[math.random(1, #variations)]
+            
+            -- Store in chunk
+            local chunkX = math.floor(x / self.chunkSize)
+            local chunkY = math.floor(y / self.chunkSize)
+            local key = chunkX .. "," .. chunkY
+            
+            if not self.trees[key] then self.trees[key] = {} end
+            table.insert(self.trees[key], {
+                x = x,
+                y = y,
+                variation = variation
+            })
+        end
+    end
+    print("ServerLogic: Generated 500 trees.")
 end
 
 -- Add a player to the game
@@ -391,112 +481,10 @@ function ServerLogic:spawnNPCs()
     )
 end
 
--- Spawn animals (server-authoritative)
+-- Spawn animals (server-authoritative) (Disabled for performance)
 function ServerLogic:spawnAnimals()
-    local WORLD_W, WORLD_H = self.worldWidth, self.worldHeight
-
-    local function addAnimalGroup(centerX, centerY, radius, animalData)
-        for i = 1, animalData.count do
-            local angle = (i / animalData.count) * math.pi * 2 + (animalData.offset or 0)
-            local offsetX = math.cos(angle) * (radius * animalData.distance)
-            local offsetY = math.sin(angle) * (radius * animalData.distance)
-            local x = centerX + offsetX
-            local y = centerY + offsetY
-
-            self.state:createAnimal(
-                x, y,
-                animalData.spritePath,
-                animalData.name,
-                animalData.speed,
-                centerX, centerY, radius
-            )
-        end
-    end
-
-    -- Farm animals (northwest) - INCREASED DENSITY
-    local farmX, farmY, farmR = WORLD_W * 0.15, WORLD_H * 0.15, 500
-    addAnimalGroup(farmX, farmY, farmR, {count = 8, distance = 0.3, spritePath = "assets/img/sprites/animals/Clucking Chicken/CluckingChicken.png", name = "Chicken", speed = 25})
-    addAnimalGroup(farmX, farmY, farmR, {count = 6, distance = 0.5, spritePath = "assets/img/sprites/animals/Dainty Pig/DaintyPig.png", name = "Pig", speed = 20})
-    addAnimalGroup(farmX, farmY, farmR, {count = 6, distance = 0.4, offset = math.pi / 6, spritePath = "assets/img/sprites/animals/Pasturing Sheep/PasturingSheep.png", name = "Sheep", speed = 22})
-    addAnimalGroup(farmX, farmY, farmR, {count = 5, distance = 0.6, offset = math.pi / 3, spritePath = "assets/img/sprites/animals/Tiny Chick/TinyChick.png", name = "Chick", speed = 18})
-
-    -- Forest animals (northeast) - INCREASED DENSITY
-    local forestX, forestY, forestR = WORLD_W * 0.85, WORLD_H * 0.2, 550
-    addAnimalGroup(forestX, forestY, forestR, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Snow Fox/SnowFox.png", name = "Fox", speed = 35})
-    addAnimalGroup(forestX, forestY, forestR, {count = 4, distance = 0.6, spritePath = "assets/img/sprites/animals/Timber Wolf/TimberWolf.png", name = "Wolf", speed = 40})
-    addAnimalGroup(forestX, forestY, forestR, {count = 4, distance = 0.3, offset = math.pi / 4, spritePath = "assets/img/sprites/animals/Spikey Porcupine/SpikeyPorcupine.png", name = "Porcupine", speed = 18})
-    addAnimalGroup(forestX, forestY, forestR, {count = 5, distance = 0.5, offset = math.pi / 2, spritePath = "assets/img/sprites/animals/Meowing Cat/MeowingCat.png", name = "Cat", speed = 35})
-
-    -- Swamp animals (southeast) - INCREASED DENSITY
-    local swampX, swampY, swampR = WORLD_W * 0.8, WORLD_H * 0.8, 500
-    addAnimalGroup(swampX, swampY, swampR, {count = 8, distance = 0.35, spritePath = "assets/img/sprites/animals/Croaking Toad/CroakingToad.png", name = "Toad", speed = 15})
-    addAnimalGroup(swampX, swampY, swampR, {count = 6, distance = 0.5, offset = math.pi / 6, spritePath = "assets/img/sprites/animals/Leaping Frog/LeapingFrog.png", name = "Frog", speed = 30})
-    addAnimalGroup(swampX, swampY, swampR, {count = 4, distance = 0.25, spritePath = "assets/img/sprites/animals/Slow Turtle/SlowTurtle.png", name = "Turtle", speed = 12})
-
-    -- Wild animals (southwest) - INCREASED DENSITY
-    local wildX, wildY, wildR = WORLD_W * 0.2, WORLD_H * 0.85, 550
-    addAnimalGroup(wildX, wildY, wildR, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Mad Boar/MadBoar.png", name = "Boar", speed = 32})
-    addAnimalGroup(wildX, wildY, wildR, {count = 4, distance = 0.5, offset = math.pi / 4, spritePath = "assets/img/sprites/animals/Stinky Skunk/StinkySkunk.png", name = "Skunk", speed = 28})
-    addAnimalGroup(wildX, wildY, wildR, {count = 6, distance = 0.3, offset = math.pi / 6, spritePath = "assets/img/sprites/animals/Honking Goose/HonkingGoose.png", name = "Goose", speed = 33})
-
-    -- Coastal animals (center-east) - INCREASED DENSITY
-    local coastalX, coastalY, coastalR = WORLD_W * 0.7, WORLD_H * 0.5, 500
-    addAnimalGroup(coastalX, coastalY, coastalR, {count = 8, distance = 0.4, spritePath = "assets/img/sprites/animals/Coral Crab/CoralCrab.png", name = "Crab", speed = 20})
-    addAnimalGroup(coastalX, coastalY, coastalR * 1.5, {count = 4, distance = 0.6, spritePath = "assets/img/sprites/animals/Meowing Cat/MeowingCat.png", name = "Cat", speed = 35})
-
-    -- Mountain animals (north central) - INCREASED DENSITY
-    local mountainX, mountainY, mountainR = WORLD_W * 0.5, WORLD_H * 0.15, 550
-    addAnimalGroup(mountainX, mountainY, mountainR, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Timber Wolf/TimberWolf.png", name = "Wolf", speed = 40})
-    addAnimalGroup(mountainX, mountainY, mountainR, {count = 6, distance = 0.5, offset = math.pi / 6, spritePath = "assets/img/sprites/animals/Snow Fox/SnowFox.png", name = "Fox", speed = 35})
-    addAnimalGroup(mountainX, mountainY, mountainR, {count = 4, distance = 0.3, offset = math.pi / 3, spritePath = "assets/img/sprites/animals/Spikey Porcupine/SpikeyPorcupine.png", name = "Porcupine", speed = 18})
-
-    -- Desert animals (center-west) - INCREASED DENSITY
-    local desertX, desertY, desertR = WORLD_W * 0.3, WORLD_H * 0.5, 500
-    addAnimalGroup(desertX, desertY, desertR, {count = 8, distance = 0.3, spritePath = "assets/img/sprites/animals/Croaking Toad/CroakingToad.png", name = "Toad", speed = 15})
-    addAnimalGroup(desertX, desertY, desertR, {count = 4, distance = 0.5, spritePath = "assets/img/sprites/animals/Slow Turtle/SlowTurtle.png", name = "Turtle", speed = 12})
-
-    -- Grassland animals (center-northwest) - INCREASED DENSITY
-    local grasslandX, grasslandY, grasslandR = WORLD_W * 0.35, WORLD_H * 0.35, 550
-    addAnimalGroup(grasslandX, grasslandY, grasslandR, {count = 10, distance = 0.5, spritePath = "assets/img/sprites/animals/Clucking Chicken/CluckingChicken.png", name = "Chicken", speed = 25})
-    addAnimalGroup(grasslandX, grasslandY, grasslandR, {count = 8, distance = 0.4, offset = math.pi / 8, spritePath = "assets/img/sprites/animals/Pasturing Sheep/PasturingSheep.png", name = "Sheep", speed = 22})
-    addAnimalGroup(grasslandX, grasslandY, grasslandR, {count = 6, distance = 0.3, offset = math.pi / 4, spritePath = "assets/img/sprites/animals/Dainty Pig/DaintyPig.png", name = "Pig", speed = 20})
-
-    -- River animals (center-south) - INCREASED DENSITY
-    local riverX, riverY, riverR = WORLD_W * 0.55, WORLD_H * 0.7, 500
-    addAnimalGroup(riverX, riverY, riverR, {count = 8, distance = 0.4, spritePath = "assets/img/sprites/animals/Honking Goose/HonkingGoose.png", name = "Goose", speed = 33})
-    addAnimalGroup(riverX, riverY, riverR, {count = 6, distance = 0.5, offset = math.pi / 6, spritePath = "assets/img/sprites/animals/Leaping Frog/LeapingFrog.png", name = "Frog", speed = 30})
-    addAnimalGroup(riverX, riverY, riverR, {count = 4, distance = 0.6, offset = math.pi / 3, spritePath = "assets/img/sprites/animals/Coral Crab/CoralCrab.png", name = "Crab", speed = 20})
-
-    -- Tiny chicks (center) - INCREASED DENSITY
-    local chickX, chickY, chickR = WORLD_W * 0.5, WORLD_H * 0.5, 400
-    addAnimalGroup(chickX, chickY, chickR, {count = 10, distance = 0.5, spritePath = "assets/img/sprites/animals/Tiny Chick/TinyChick.png", name = "Chick", speed = 18})
-
-    -- NEW GROUPS: Additional scattered groups for higher density
-
-    -- Northeast scattered groups
-    addAnimalGroup(WORLD_W * 0.75, WORLD_H * 0.3, 300, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Clucking Chicken/CluckingChicken.png", name = "Chicken", speed = 25})
-    addAnimalGroup(WORLD_W * 0.9, WORLD_H * 0.35, 350, {count = 5, distance = 0.5, spritePath = "assets/img/sprites/animals/Pasturing Sheep/PasturingSheep.png", name = "Sheep", speed = 22})
-    addAnimalGroup(WORLD_W * 0.8, WORLD_H * 0.4, 300, {count = 4, distance = 0.4, spritePath = "assets/img/sprites/animals/Tiny Chick/TinyChick.png", name = "Chick", speed = 18})
-
-    -- Northwest scattered groups
-    addAnimalGroup(WORLD_W * 0.25, WORLD_H * 0.25, 350, {count = 5, distance = 0.4, spritePath = "assets/img/sprites/animals/Leaping Frog/LeapingFrog.png", name = "Frog", speed = 30})
-    addAnimalGroup(WORLD_W * 0.3, WORLD_H * 0.3, 300, {count = 4, distance = 0.5, spritePath = "assets/img/sprites/animals/Croaking Toad/CroakingToad.png", name = "Toad", speed = 15})
-
-    -- Southeast scattered groups
-    addAnimalGroup(WORLD_W * 0.75, WORLD_H * 0.75, 350, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Honking Goose/HonkingGoose.png", name = "Goose", speed = 33})
-    addAnimalGroup(WORLD_W * 0.85, WORLD_H * 0.7, 300, {count = 5, distance = 0.5, spritePath = "assets/img/sprites/animals/Meowing Cat/MeowingCat.png", name = "Cat", speed = 35})
-
-    -- Southwest scattered groups
-    addAnimalGroup(WORLD_W * 0.25, WORLD_H * 0.75, 350, {count = 5, distance = 0.4, spritePath = "assets/img/sprites/animals/Mad Boar/MadBoar.png", name = "Boar", speed = 32})
-    addAnimalGroup(WORLD_W * 0.15, WORLD_H * 0.7, 300, {count = 4, distance = 0.5, spritePath = "assets/img/sprites/animals/Stinky Skunk/StinkySkunk.png", name = "Skunk", speed = 28})
-
-    -- Center-north scattered groups
-    addAnimalGroup(WORLD_W * 0.45, WORLD_H * 0.25, 350, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Snow Fox/SnowFox.png", name = "Fox", speed = 35})
-    addAnimalGroup(WORLD_W * 0.55, WORLD_H * 0.3, 300, {count = 4, distance = 0.5, spritePath = "assets/img/sprites/animals/Timber Wolf/TimberWolf.png", name = "Wolf", speed = 40})
-
-    -- Center-south scattered groups
-    addAnimalGroup(WORLD_W * 0.45, WORLD_H * 0.65, 350, {count = 6, distance = 0.4, spritePath = "assets/img/sprites/animals/Coral Crab/CoralCrab.png", name = "Crab", speed = 20})
-    addAnimalGroup(WORLD_W * 0.6, WORLD_H * 0.6, 300, {count = 5, distance = 0.5, spritePath = "assets/img/sprites/animals/Slow Turtle/SlowTurtle.png", name = "Turtle", speed = 12})
+    -- local WORLD_W, WORLD_H = self.worldWidth, self.worldHeight
+    -- ... (logic removed)
 end
 
 return ServerLogic

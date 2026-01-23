@@ -2,6 +2,7 @@
 -- Simple network message protocol
 
 local Protocol = {}
+local json = require("src.lib.dkjson")
 
 -- Message types
 Protocol.MSG = {
@@ -26,7 +27,7 @@ Protocol.MSG = {
     PING = "ping",  -- Ping request
     PONG = "pong",  -- Ping response
     CHUNK_DATA = "chunk", -- Chunk data from server
-    REQUEST_CHUNK = "chunk", -- Request chunk from client
+    REQUEST_CHUNK = "req_chunk", -- Request chunk from client
 }
 
 -- Serialize: type|field1|field2|...
@@ -222,7 +223,6 @@ function Protocol.decode(data)
         msg.cy = tonumber(parts[3])
         local jsonStr = parts[4]
         if jsonStr then
-            local json = require("src.lib.dkjson")
             local success, decoded = pcall(json.decode, jsonStr)
             if success and decoded then
                 msg.data = decoded

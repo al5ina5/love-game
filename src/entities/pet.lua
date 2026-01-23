@@ -90,23 +90,40 @@ function Pet:new(owner, isRemote, monsterName)
 end
 
 function Pet:setMonster(monsterName)
-    if self.monsterName == monsterName and self.spriteSheet then
-        return  -- Already set
+    if self.monsterName == monsterName and self.spriteLoaded then
+        return  -- Already set and loaded
     end
     self.monsterName = monsterName
-    local spritePath = "assets/img/sprites/monsters/" .. monsterName .. "/" .. monsterName:gsub(" ", "") .. ".png"
-    self.spriteSheet = love.graphics.newImage(spritePath)
-    self.frameWidth = 16
-    self.frameHeight = 16
+    self.spritePath = "assets/img/sprites/monsters/" .. monsterName .. "/" .. monsterName:gsub(" ", "") .. ".png"
+    self.spriteLoaded = false
+end
+
+function Pet:loadSprite()
+    if self.spriteLoaded then return end
+    if not self.spritePath or self.spritePath == "" then return end
+
+    local success, err = pcall(function()
+        local ResourceManager = require('src.game.resource_manager')
+        self.spriteSheet = ResourceManager.getImage(self.spritePath)
+        self.frameWidth = 16
+        self.frameHeight = 16
+        
+        -- Create quads for each frame
+        self.quads = {}
+        if self.spriteSheet then
+            for i = 0, self.frameCount - 1 do
+                self.quads[i + 1] = love.graphics.newQuad(
+                    i * self.frameWidth, 0,
+                    self.frameWidth, self.frameHeight,
+                    self.spriteSheet:getDimensions()
+                )
+            end
+            self.spriteLoaded = true
+        end
+    end)
     
-    -- Create quads for each frame
-    self.quads = {}
-    for i = 0, self.frameCount - 1 do
-        self.quads[i + 1] = love.graphics.newQuad(
-            i * self.frameWidth, 0,
-            self.frameWidth, self.frameHeight,
-            self.spriteSheet:getDimensions()
-        )
+    if not success then
+        print("Pet: Failed to lazy load sprite: " .. tostring(err))
     end
 end
 
@@ -287,6 +304,10 @@ function Pet:update(dt)
 end
 
 function Pet:draw()
+    if not self.spriteLoaded then
+        self:loadSprite()
+    end
+
     -- Round positions to pixels to prevent blur
     local drawX = math.floor(self.x + 0.5)
     local drawY = math.floor(self.y + 0.5)
@@ -306,18 +327,19 @@ function Pet:draw()
     local offsetX = 0
     if self.direction == "left" then
         scaleX = -1
-        offsetX = self.frameWidth
+        offsetX = self.frameWidth or 16
     end
     
-    -- Round the final Y position including bob offset
-    love.graphics.draw(
-        self.spriteSheet,
-        self.quads[self.animFrame],
-        drawX + offsetX,
-        math.floor(drawY + bobOffset + 0.5),
-        0,  -- rotation
-        scaleX, 1  -- scale
-    )
+    if self.spriteSheet and self.quads[self.animFrame] then
+        love.graphics.draw(
+            self.spriteSheet,
+            self.quads[self.animFrame],
+            drawX + offsetX,
+            math.floor(drawY + bobOffset + 0.5),
+            0,  -- rotation
+            scaleX, 1  -- scale
+        )
+    end
 end
 
 return Pet

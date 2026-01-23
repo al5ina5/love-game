@@ -24,6 +24,11 @@ if not hasLuaSec then
     end
 end
 
+-- Thread support for non-blocking requests
+local httpThread = nil
+local nextRequestId = 1
+local pendingCallbacks = {}
+
 local OnlineClient = {}
 OnlineClient.__index = OnlineClient
 
@@ -98,6 +103,76 @@ function OnlineClient:httpRequest(method, url, body)
             print("OnlineClient: SimpleHTTP request succeeded")
         end
         return success, data
+    end
+end
+
+-- Async HTTP request using threads
+function OnlineClient:requestAsync(method, url, body, callback, decodeJson)
+    if not love or not love.thread then
+        -- Fallback to sync if threads not available
+        local success, data = self:httpRequest(method, url, body)
+        if callback then callback(success, data) end
+        return
+    end
+
+    if not httpThread then
+        httpThread = love.thread.newThread("src/net/http_thread.lua")
+        -- Pass project root to thread so it can require dkjson
+        httpThread:start(love.filesystem.getSourceBaseDirectory())
+    end
+
+    local id = nextRequestId
+    nextRequestId = nextRequestId + 1
+    pendingCallbacks[id] = callback
+
+    local requestChannel = love.thread.getChannel("http_request")
+    requestChannel:push({
+        id = id,
+        method = method,
+        url = url,
+        body = body,
+        decodeJson = decodeJson ~= false -- Default to true if not specified
+    })
+    
+    print("OnlineClient: Async " .. method .. " " .. url .. " (ID: " .. id .. ")")
+end
+
+-- Poll for async responses
+function OnlineClient.update()
+    if not love or not love.thread then return end
+    
+    local responseChannel = love.thread.getChannel("http_response")
+    local response = responseChannel:pop()
+    
+    while response do
+        local id = response.id
+        local code = response.code
+        local body = response.body
+        local callback = pendingCallbacks[id]
+        
+        if callback then
+            local success = (code >= 200 and code < 300)
+            local data = body -- This might already be a table if decoded in bg
+            
+            -- Fallback decode if not done in background or string forced
+            if success and type(body) == "string" and body ~= "" then
+                local decodeSuccess, decodedData = pcall(json.decode, body)
+                if decodeSuccess then
+                    data = decodedData
+                end
+            end
+            
+            local ok, err = xpcall(function()
+                callback(success, data)
+            end, debug.traceback)
+            
+            if not ok then
+                print("OnlineClient: Error in async callback: " .. tostring(err))
+            end
+            pendingCallbacks[id] = nil
+        end
+        
+        response = responseChannel:pop()
     end
 end
 

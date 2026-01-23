@@ -20,11 +20,13 @@ class GameServer {
         this.PROJECTILE_SPEED = 400; // pixels per second
         this.PROJECTILE_DAMAGE = 10;
         this.PROJECTILE_LIFETIME = 3.0; // seconds
+        this.animalManager = null;
         this.state = {
             players: {},
             projectiles: {},
             chests: {},
             npcs: {},
+            animals: {},
             cycleStartTime: Date.now(),
             cycleDuration: this.CYCLE_DURATION,
             cycleTimeRemaining: this.CYCLE_DURATION,
@@ -40,6 +42,27 @@ class GameServer {
         this.chunkManager = new ChunkManager_1.ChunkManager(this.worldWidth, this.worldHeight);
         const worldGen = new WorldGenerator_1.WorldGenerator(this.chunkManager, 12345); // Fixed seed for now
         worldGen.generate();
+        // Create Animals (server-authoritative) - must be after world generation to access waterMap
+        this.animalManager = worldGen.getAnimalManager();
+        if (this.animalManager) {
+            const animals = this.animalManager.getAnimals();
+            for (const animalId in animals) {
+                const animal = animals[animalId];
+                this.state.animals[animalId] = {
+                    id: animal.id,
+                    x: animal.x,
+                    y: animal.y,
+                    spritePath: animal.spritePath,
+                    name: animal.name,
+                    speed: animal.speed,
+                    state: animal.state,
+                    direction: animal.direction,
+                    groupCenterX: animal.groupCenterX,
+                    groupCenterY: animal.groupCenterY,
+                    groupRadius: animal.groupRadius,
+                };
+            }
+        }
         // Spawn initial chests
         this.spawnInitialChests(10);
         // Create NPCs (server-authoritative)
@@ -49,6 +72,25 @@ class GameServer {
     }
     getChunkData(cx, cy) {
         return this.chunkManager.getChunk(cx, cy);
+    }
+    // Get complete world data for client pre-loading (MIYO optimization)
+    getCompleteWorldData() {
+        console.log('[GameServer] Preparing complete world data for client...');
+        const worldData = {
+            worldWidth: this.worldWidth,
+            worldHeight: this.worldHeight,
+            chunks: {},
+            npcs: this.getNPCs(),
+            animals: this.getAnimals(),
+            timestamp: Date.now()
+        };
+        // Get all chunks from chunk manager
+        const allChunks = this.chunkManager.getAllChunks();
+        for (const [chunkKey, chunkData] of Object.entries(allChunks)) {
+            worldData.chunks[chunkKey] = chunkData;
+        }
+        console.log(`[GameServer] World data prepared: ${Object.keys(worldData.chunks).length} chunks, ${worldData.npcs.length} NPCs, ${worldData.animals.length} animals`);
+        return worldData;
     }
     startGameLoop() {
         const update = () => {
@@ -67,6 +109,21 @@ class GameServer {
         // Check if cycle ended (deadly event)
         if (this.state.cycleTimeRemaining <= 0 && !this.state.deadlyEventActive) {
             this.triggerDeadlyEvent();
+        }
+        // Update animals
+        if (this.animalManager) {
+            this.animalManager.update(dt);
+            // Sync animal state from manager to game state
+            const animals = this.animalManager.getAnimals();
+            for (const animalId in animals) {
+                const animal = animals[animalId];
+                if (this.state.animals[animalId]) {
+                    this.state.animals[animalId].x = animal.x;
+                    this.state.animals[animalId].y = animal.y;
+                    this.state.animals[animalId].state = animal.state;
+                    this.state.animals[animalId].direction = animal.direction;
+                }
+            }
         }
         // Update projectiles
         this.updateProjectiles(dt);
@@ -501,12 +558,16 @@ class GameServer {
     getNPCs() {
         return Object.values(this.state.npcs);
     }
+    getAnimals() {
+        return Object.values(this.state.animals);
+    }
     getStateSnapshot() {
         return JSON.stringify({
             players: this.state.players,
             projectiles: this.state.projectiles,
             chests: this.state.chests,
             npcs: this.state.npcs,
+            animals: this.state.animals,
             cycleTimeRemaining: this.state.cycleTimeRemaining,
             cycleDuration: this.state.cycleDuration,
             deadlyEventActive: this.state.deadlyEventActive,
