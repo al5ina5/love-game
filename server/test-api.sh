@@ -30,7 +30,7 @@ echo ""
 echo "2. Testing JOIN ROOM..."
 JOIN_RESPONSE=$(curl -s -X POST "$API_URL/api/join-room" \
   -H "Content-Type: application/json" \
-  -d "{\"code\": \"$ROOM_CODE\"}")
+  -d "{\"roomCode\": \"$ROOM_CODE\"}")
 
 echo "Response: $JOIN_RESPONSE"
 
@@ -57,9 +57,9 @@ echo ""
 
 # Test 5: Keep-Alive (Heartbeat)
 echo "5. Testing KEEP-ALIVE (Heartbeat)..."
-HEARTBEAT_RESPONSE=$(curl -s -X POST "$API_URL/api/keep-alive" \
+HEARTBEAT_RESPONSE=$(curl -s -X POST "$API_URL/api/heartbeat" \
   -H "Content-Type: application/json" \
-  -d "{\"code\": \"$ROOM_CODE\"}")
+  -d "{\"roomCode\": \"$ROOM_CODE\"}")
 echo "Response: $HEARTBEAT_RESPONSE"
 echo ""
 

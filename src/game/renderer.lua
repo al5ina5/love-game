@@ -226,21 +226,22 @@ function Renderer.drawWorld(game)
                 readable = true,
                 msaa = 0,
                 type = "2d",
-                mipmaps = "none",
-                depth = true -- Enable depth buffer for this canvas
+                mipmaps = "none"
             })
             game.worldCanvas:setFilter("nearest", "nearest")
         end
         
-        -- Render world to canvas WITHOUT camera transformations first
-        -- We'll apply camera transform when drawing the canvas
+        -- Render world to canvas WITHOUT global scaling from main.lua
         love.graphics.setCanvas(game.worldCanvas)
         love.graphics.clear(0, 0, 0, 0)
 
+        love.graphics.push()
+        love.graphics.origin() -- Reset global scale/translate so we draw 1:1 to canvas
+
         -- Render world content directly to canvas (no camera transform yet)
         -- We need to manually offset by camera position
-        love.graphics.push()
-        love.graphics.translate(-math.floor(game.camera.x + 0.5), -math.floor(game.camera.y + 0.5))
+        -- Render world content directly to canvas with camera transform
+        game.camera:attach()
         
         game.world:drawFloor(game.camera, game.worldCache)
         
@@ -265,23 +266,21 @@ function Renderer.drawWorld(game)
         local BoonSnatchRenderer = require('src.gamemodes.boonsnatch.renderer')
         BoonSnatchRenderer.drawGameState(game.gameState, game)
         
-        love.graphics.pop()
+        game.camera:detach()
+        love.graphics.pop() -- Restore global scale for final draw
         
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.setLineWidth(1)
         love.graphics.setCanvas()
         
-        -- Draw canvas with shader applied, using camera transformation
+        -- Draw canvas with shader applied (in screen space, no camera transform needed)
         local DesaturationShader = require('src.systems.desaturation_shader')
         DesaturationShader.setSaturation(game.desaturationShader, saturation)
         
-        game.camera:attach()
         love.graphics.setShader(game.desaturationShader)
         love.graphics.setColor(1, 1, 1, 1)
-        -- Draw canvas at origin - camera transform will position it correctly
         love.graphics.draw(game.worldCanvas, 0, 0)
         love.graphics.setShader()
-        game.camera:detach()
     else
         -- Normal rendering without shader (Main Screen)
         game.camera:attach()
