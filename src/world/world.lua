@@ -59,8 +59,12 @@ function World:new(worldWidth, worldHeight)
 
     -- Chunk Management
     self.loadedChunks = {} -- Track which chunks are loaded [cx,cy] = true
-    self.loadingChunks = {} 
+    self.loadingChunks = {}
     self.lastChunkUpdate = 0
+
+    -- Async chunk loading for Miyoo performance
+    self.chunkLoadQueue = {}  -- Queue of chunks waiting to be loaded
+    self.maxChunksPerFrame = Constants.MIYOO_DEVICE and 1 or 3  -- Miyoo: 1 chunk/frame, Desktop: 3 chunks/frame
 
     -- SpriteBatches for performance
     self.grassBatch = nil
@@ -71,6 +75,10 @@ function World:new(worldWidth, worldHeight)
     self.lastGrassStartY = nil
     self.lastGrassEndX = nil
     self.lastGrassEndY = nil
+
+    -- Throttle grass batch rebuilding for Miyoo performance
+    self.lastGrassRebuildTime = 0
+    self.grassRebuildThrottle = Constants.MIYOO_DEVICE and 0.5 or 0.1  -- Miyoo: rebuild every 0.5s, Desktop: every 0.1s
     
     -- Road/Water SpriteBatches per chunk
     self.roadBatches = {}  -- [chunkKey] = SpriteBatch
@@ -261,23 +269,28 @@ function World:sendRocksToClients(network, isHost)
     network:send(Protocol.MSG.ROCKS_DATA, { rocks = self.rocks })
 end
 
-function World:update(dt, playerX, playerY, network)
+function World:update(dt, playerX, playerY, network, chunkManager)
     if not playerX or not playerY or not network then return end
-    
+
     self.lastChunkUpdate = self.lastChunkUpdate + dt
-    if self.lastChunkUpdate < 0.5 then return end -- Check every 0.5s
+    -- Miyoo: Check less frequently to reduce load, Desktop: Check more frequently for smoothness
+    local checkInterval = Constants.MIYOO_DEVICE and 1.0 or 0.5
+    if self.lastChunkUpdate < checkInterval then return end
     self.lastChunkUpdate = 0
-    
+
     local cx = math.floor(playerX / self.chunkSize)
     local cy = math.floor(playerY / self.chunkSize)
-    
-    -- Request 3x3 chunks around player
-    for dy = -1, 1 do
-        for dx = -1, 1 do
+
+    -- Get load distance from chunkManager if available, otherwise use conservative default
+    local loadDistance = chunkManager and chunkManager.loadDistance or (Constants.MIYOO_DEVICE and 0 or 1)
+
+    -- Request chunks around player based on load distance
+    for dy = -loadDistance, loadDistance do
+        for dx = -loadDistance, loadDistance do
             local tx = cx + dx
             local ty = cy + dy
             local key = tx .. "," .. ty
-            
+
             if not self.loadedChunks[key] and not self.loadingChunks[key] then
                 -- Request chunk
                 if network.send then
@@ -297,12 +310,29 @@ end
 function World:loadChunkData(chunkX, chunkY, data)
     local chunkKey = chunkX .. "," .. chunkY
     if self.loadedChunks[chunkKey] then return end -- Already loaded
-    
+
+    -- For Miyoo, queue chunks to load asynchronously
+    if Constants.MIYOO_DEVICE then
+        table.insert(self.chunkLoadQueue, {
+            chunkKey = chunkKey,
+            chunkX = chunkX,
+            chunkY = chunkY,
+            data = data,
+            loadStep = 1  -- Start with step 1 (roads)
+        })
+        return
+    end
+
+    -- Desktop: Load immediately
+    self:loadChunkDataImmediate(chunkKey, chunkX, chunkY, data)
+end
+
+function World:loadChunkDataImmediate(chunkKey, chunkX, chunkY, data)
     local startTime = love.timer.getTime()
     -- print("World: Loading chunk data for " .. chunkKey)
-    
+
     -- data contains { roads={}, water={}, rocks={}, trees={} }
-    
+
     -- 1. Load Roads
     if data.roads then
         for key, tileID in pairs(data.roads) do
@@ -346,6 +376,70 @@ function World:loadChunkData(chunkX, chunkY, data)
 
     local duration = (love.timer.getTime() - startTime) * 1000
     -- print(string.format("World: Loaded chunk %s in %.2fms", chunkKey, duration))
+end
+
+-- Process queued chunk loading for Miyoo (called every frame)
+function World:processChunkLoadingQueue()
+    if not Constants.MIYOO_DEVICE or #self.chunkLoadQueue == 0 then return end
+
+    local chunksProcessed = 0
+    while chunksProcessed < self.maxChunksPerFrame and #self.chunkLoadQueue > 0 do
+        local chunkInfo = self.chunkLoadQueue[1]
+        local completed = false
+
+        if chunkInfo.loadStep == 1 then
+            -- Load roads
+            if chunkInfo.data.roads then
+                for key, tileID in pairs(chunkInfo.data.roads) do
+                    local lx, ly = key:match("([^,]+),([^,]+)")
+                    lx, ly = tonumber(lx), tonumber(ly)
+                    if not self.roads[chunkInfo.chunkKey] then self.roads[chunkInfo.chunkKey] = {} end
+                    if not self.roads[chunkInfo.chunkKey][lx] then self.roads[chunkInfo.chunkKey][lx] = {} end
+                    self.roads[chunkInfo.chunkKey][lx][ly] = tileID
+                end
+            end
+            chunkInfo.loadStep = 2
+
+        elseif chunkInfo.loadStep == 2 then
+            -- Load water
+            if chunkInfo.data.water then
+                for key, tileID in pairs(chunkInfo.data.water) do
+                    local lx, ly = key:match("([^,]+),([^,]+)")
+                    lx, ly = tonumber(lx), tonumber(ly)
+                    if not self.water[chunkInfo.chunkKey] then self.water[chunkInfo.chunkKey] = {} end
+                    if not self.water[chunkInfo.chunkKey][lx] then self.water[chunkInfo.chunkKey][lx] = {} end
+                    self.water[chunkInfo.chunkKey][lx][ly] = tileID
+                end
+            end
+            chunkInfo.loadStep = 3
+
+        elseif chunkInfo.loadStep == 3 then
+            -- Load rocks
+            if chunkInfo.data.rocks then
+                for _, rock in ipairs(chunkInfo.data.rocks) do
+                    table.insert(self.rocks, rock)
+                end
+            end
+            chunkInfo.loadStep = 4
+
+        elseif chunkInfo.loadStep == 4 then
+            -- Load trees
+            if chunkInfo.data.trees then
+                for _, tree in ipairs(chunkInfo.data.trees) do
+                    table.insert(self.trees, tree)
+                end
+            end
+            completed = true
+        end
+
+        if completed then
+            self.loadedChunks[chunkInfo.chunkKey] = true
+            self.loadingChunks[chunkInfo.chunkKey] = nil
+            self.spriteBatchDirty = true
+            table.remove(self.chunkLoadQueue, 1)
+            chunksProcessed = chunksProcessed + 1
+        end
+    end
 end
 
 -- Unload a chunk and clean up its resources
@@ -586,17 +680,57 @@ function World:checkTreeCollision(x, y, width, height, chunkManager)
     return false
 end
 
-function World:getTreesForDrawing(chunkManager, camera)
+function World:getTreesForDrawing(chunkManager, camera, worldCache)
     local drawList = {}
+
+    -- Use world cache if available (MIYO optimization)
+    if worldCache and worldCache:isReady() then
+        -- Get trees near camera using spatial index
+        local cameraCenterX = camera and (camera.x + camera.width/2) or 0
+        local cameraCenterY = camera and (camera.y + camera.height/2) or 0
+        local viewRadius = 300  -- Draw trees within 300 pixels of camera
+
+        local nearbyTrees = worldCache:getNearbyObjects("trees", cameraCenterX, cameraCenterY, viewRadius)
+
+        -- Limit entities drawn on Miyoo to reduce CPU usage
+        if Constants.MIYOO_DEVICE and #nearbyTrees > 50 then
+            table.sort(nearbyTrees, function(a, b)
+                local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+                local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+                return distA < distB
+            end)
+            -- Keep only the closest 50 trees
+            local limitedTrees = {}
+            for i = 1, math.min(50, #nearbyTrees) do
+                limitedTrees[i] = nearbyTrees[i]
+            end
+            nearbyTrees = limitedTrees
+        end
+
+        for _, tree in ipairs(nearbyTrees) do
+            table.insert(drawList, {
+                type = "tree",
+                x = tree.x,
+                y = tree.y + 64, -- Sort by visual base of trunk (approx 64px down), not image bottom
+                originalY = tree.y,
+                width = tree.width,
+                height = tree.height,
+                treeType = tree.type or "standard"
+            })
+        end
+        return drawList
+    end
+
+    -- Fallback to old chunk-based system
     if not self.trees then return drawList end
-    
+
     local visibleTrees = self.trees
     if chunkManager and camera then
         local cameraMinX = camera.x - 200
         local cameraMinY = camera.y - 200
         local cameraMaxX = camera.x + camera.width + 200
         local cameraMaxY = camera.y + camera.height + 200
-        
+
         visibleTrees = {}
         for _, tree in ipairs(self.trees) do
             if tree.x >= cameraMinX and tree.x <= cameraMaxX and
@@ -607,7 +741,27 @@ function World:getTreesForDrawing(chunkManager, camera)
             end
         end
     end
-    
+
+    -- Limit entities drawn on Miyoo to reduce CPU usage
+    if Constants.MIYOO_DEVICE and #visibleTrees > 50 then
+        -- Sort by distance to camera center and take closest 50
+        local cameraCenterX = camera and (camera.x + camera.width/2) or 0
+        local cameraCenterY = camera and (camera.y + camera.height/2) or 0
+
+        table.sort(visibleTrees, function(a, b)
+            local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+            local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+            return distA < distB
+        end)
+
+        -- Keep only the closest 50 trees
+        local limitedTrees = {}
+        for i = 1, math.min(50, #visibleTrees) do
+            limitedTrees[i] = visibleTrees[i]
+        end
+        visibleTrees = limitedTrees
+    end
+
     for _, tree in ipairs(visibleTrees) do
         table.insert(drawList, {
             type = "tree",
@@ -623,7 +777,10 @@ function World:getTreesForDrawing(chunkManager, camera)
 end
 
 
-function World:drawFloor(camera)
+function World:drawFloor(camera, worldCache)
+    -- Process chunk loading queue for async loading on Miyoo
+    self:processChunkLoadingQueue()
+
     local cameraX = math.floor(camera.x + 0.5)
     local cameraY = math.floor(camera.y + 0.5)
     local margin = 3
@@ -639,13 +796,15 @@ function World:drawFloor(camera)
 
     -- 1. Draw Background Grass EVERYWHERE using SpriteBatch
     if self.grassImage and self.grassBatch then
-        -- Only rebuild SpriteBatch if camera moved to new tiles
-        local needsRebuild = self.lastGrassStartX ~= startX or 
-                             self.lastGrassStartY ~= startY or 
-                             self.lastGrassEndX ~= endX or 
+        -- Only rebuild SpriteBatch if camera moved to new tiles OR throttle time passed
+        local currentTime = love.timer.getTime()
+        local needsRebuild = self.lastGrassStartX ~= startX or
+                             self.lastGrassStartY ~= startY or
+                             self.lastGrassEndX ~= endX or
                              self.lastGrassEndY ~= endY or
-                             self.spriteBatchDirty
-        
+                             self.spriteBatchDirty or
+                             (currentTime - self.lastGrassRebuildTime) >= self.grassRebuildThrottle
+
         if needsRebuild then
             self.grassBatch:clear()
             for ty = startY, endY do
@@ -653,13 +812,14 @@ function World:drawFloor(camera)
                     self.grassBatch:add(tx * TILE_SIZE, ty * TILE_SIZE)
                 end
             end
-            
+
             -- Update tracking
             self.lastGrassStartX = startX
             self.lastGrassStartY = startY
             self.lastGrassEndX = endX
             self.lastGrassEndY = endY
             self.spriteBatchDirty = false
+            self.lastGrassRebuildTime = currentTime
         end
         
         love.graphics.setColor(1, 1, 1, 1)
@@ -679,8 +839,37 @@ function World:drawFloor(camera)
         love.graphics.setColor(1, 1, 1, 1)
         for ty = startY, endY do
             for tx = startX, endX do
-                -- Road
-                local roadTileID = self.roadGenerator:getRoadTile(tx, ty)
+                local roadTileID = nil
+                local waterTileID = nil
+
+                -- Use world cache if available (MIYO optimization)
+                if worldCache and worldCache:isReady() then
+                    -- Get chunk for this tile
+                    local chunkSize = self.chunkSize / TILE_SIZE  -- Convert to tile units
+                    local chunkX = math.floor(tx / chunkSize)
+                    local chunkY = math.floor(ty / chunkSize)
+                    local chunk = worldCache:getChunk(chunkX, chunkY)
+
+                    if chunk then
+                        -- Get local tile coordinates within chunk
+                        local localTileX = tx % chunkSize
+                        local localTileY = ty % chunkSize
+
+                        -- Get road and water tiles from cached chunk
+                        if chunk.roads then
+                            roadTileID = chunk.roads[string.format("%d,%d", localTileX, localTileY)]
+                        end
+                        if chunk.water then
+                            waterTileID = chunk.water[string.format("%d,%d", localTileX, localTileY)]
+                        end
+                    end
+                else
+                    -- Fallback to old generators
+                    roadTileID = self.roadGenerator:getRoadTile(tx, ty)
+                    waterTileID = self.waterGenerator:getWaterTile(tx, ty)
+                end
+
+                -- Draw Road
                 if roadTileID then
                     local quad = self:getRoadQuad(roadTileID)
                     if quad then
@@ -688,8 +877,7 @@ function World:drawFloor(camera)
                     end
                 end
 
-                -- Water
-                local waterTileID = self.waterGenerator:getWaterTile(tx, ty)
+                -- Draw Water
                 if waterTileID then
                      if waterTileID == 5 and self.waterMiddle then
                         love.graphics.draw(self.waterMiddle, tx * TILE_SIZE, ty * TILE_SIZE)
@@ -722,10 +910,51 @@ function World:drawRock(rockItem)
     end
 end
 
-function World:getRocksForDrawing(chunkManager, camera)
+function World:getRocksForDrawing(chunkManager, camera, worldCache)
     local drawList = {}
+
+    -- Use world cache if available (MIYO optimization)
+    if worldCache and worldCache:isReady() then
+        -- Get rocks near camera using spatial index
+        local cameraCenterX = camera and (camera.x + camera.width/2) or 0
+        local cameraCenterY = camera and (camera.y + camera.height/2) or 0
+        local viewRadius = 200  -- Draw rocks within 200 pixels of camera
+
+        local nearbyRocks = worldCache:getNearbyObjects("rocks", cameraCenterX, cameraCenterY, viewRadius)
+
+        -- Limit entities drawn on Miyoo to reduce CPU usage
+        if Constants.MIYOO_DEVICE and #nearbyRocks > 30 then
+            table.sort(nearbyRocks, function(a, b)
+                local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+                local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+                return distA < distB
+            end)
+            -- Keep only the closest 30 rocks
+            local limitedRocks = {}
+            for i = 1, math.min(30, #nearbyRocks) do
+                limitedRocks[i] = nearbyRocks[i]
+            end
+            nearbyRocks = limitedRocks
+        end
+
+        for _, rock in ipairs(nearbyRocks) do
+            if rock and rock.x and rock.y and rock.tileId then
+                local sortY = math.floor(rock.y) + 16
+                table.insert(drawList, {
+                    type = "rock",
+                    x = math.floor(rock.x),
+                    y = sortY,
+                    tileId = rock.tileId,
+                    originalY = math.floor(rock.y)
+                })
+            end
+        end
+        return drawList
+    end
+
+    -- Fallback to old chunk-based system
     if not self.rocks or #self.rocks == 0 then return drawList end
-    
+
     -- Get visible chunks from camera
     local visibleRocks = self.rocks
     if chunkManager and camera then
@@ -734,7 +963,7 @@ function World:getRocksForDrawing(chunkManager, camera)
         local cameraMinY = camera.y - 100
         local cameraMaxX = camera.x + camera.width + 100
         local cameraMaxY = camera.y + camera.height + 100
-        
+
         visibleRocks = {}
         for _, rock in ipairs(self.rocks) do
             -- Check if rock is in camera view or nearby chunks
@@ -746,7 +975,27 @@ function World:getRocksForDrawing(chunkManager, camera)
             end
         end
     end
-    
+
+    -- Limit entities drawn on Miyoo to reduce CPU usage
+    if Constants.MIYOO_DEVICE and #visibleRocks > 30 then
+        -- Sort by distance to camera center and take closest 30
+        local cameraCenterX = camera and (camera.x + camera.width/2) or 0
+        local cameraCenterY = camera and (camera.y + camera.height/2) or 0
+
+        table.sort(visibleRocks, function(a, b)
+            local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+            local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+            return distA < distB
+        end)
+
+        -- Keep only the closest 30 rocks
+        local limitedRocks = {}
+        for i = 1, math.min(30, #visibleRocks) do
+            limitedRocks[i] = visibleRocks[i]
+        end
+        visibleRocks = limitedRocks
+    end
+
     for _, rock in ipairs(visibleRocks) do
         if rock and rock.x and rock.y and rock.tileId then
             local sortY = math.floor(rock.y) + 16

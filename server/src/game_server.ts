@@ -157,6 +157,29 @@ export class GameServer {
     return this.chunkManager.getChunk(cx, cy);
   }
 
+  // Get complete world data for client pre-loading (MIYO optimization)
+  public getCompleteWorldData(): any {
+    console.log('[GameServer] Preparing complete world data for client...');
+
+    const worldData = {
+      worldWidth: this.worldWidth,
+      worldHeight: this.worldHeight,
+      chunks: {} as { [key: string]: ChunkData },
+      npcs: this.getNPCs(),
+      animals: this.getAnimals(),
+      timestamp: Date.now()
+    };
+
+    // Get all chunks from chunk manager
+    const allChunks = this.chunkManager.getAllChunks();
+    for (const [chunkKey, chunkData] of Object.entries(allChunks)) {
+      worldData.chunks[chunkKey] = chunkData;
+    }
+
+    console.log(`[GameServer] World data prepared: ${Object.keys(worldData.chunks).length} chunks, ${worldData.npcs.length} NPCs, ${worldData.animals.length} animals`);
+    return worldData;
+  }
+
   private startGameLoop(): void {
     const update = () => {
       const now = Date.now();

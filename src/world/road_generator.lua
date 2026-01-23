@@ -44,6 +44,12 @@ local ROAD_TILES = {
 local TILE_SIZE = 16
 local ROAD_THICKNESS = 4 -- Radius. 1 = 3x3 brush (Center + 1 neighbor each side)
 
+-- Reduce road thickness on Miyoo for performance
+local function getRoadThickness()
+    local Constants = require('src.constants')
+    return Constants.MIYOO_DEVICE and 2 or ROAD_THICKNESS  -- Miyoo: thinner roads (5x5), Desktop: thick roads (9x9)
+end
+
 function RoadGenerator:new(world)
     local self = setmetatable({}, RoadGenerator)
     self.world = world
@@ -186,11 +192,12 @@ function RoadGenerator:generateRoadNetwork(pointsOfInterest, seed)
         
         local path = self:findPath(p1.x, p1.y, p2.x, p2.y)
         if path then
+            local thickness = getRoadThickness()
             for _, node in ipairs(path) do
-                -- "Thicken" the road: Brush of size ROAD_THICKNESS
-                -- Range: -1 to +1 (3x3)
-                for dy = -ROAD_THICKNESS, ROAD_THICKNESS do
-                    for dx = -ROAD_THICKNESS, ROAD_THICKNESS do
+                -- "Thicken" the road: Brush of size based on device
+                -- Range: -thickness to +thickness
+                for dy = -thickness, thickness do
+                    for dx = -thickness, thickness do
                         mark(node.x + dx, node.y + dy)
                     end
                 end

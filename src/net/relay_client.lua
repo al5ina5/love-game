@@ -42,7 +42,6 @@ function RelayClient:connect(roomCode, playerId)
     self.roomCode = roomCode:upper()
     self.playerId = playerId -- "host" or "client"
     
-    print("RelayClient: Connecting to " .. Constants.RELAY_HOST .. ":" .. Constants.RELAY_PORT .. " (room: " .. self.roomCode .. ", player: " .. playerId .. ")")
     
     -- Resolve hostname to IP to avoid some luasocket issues with DNS
     local ip = socket.dns.toip(Constants.RELAY_HOST)
@@ -76,7 +75,6 @@ function RelayClient:connect(roomCode, playerId)
             connected = true
         else
             retries = retries + 1
-            print("RelayClient: Waiting for connection... (try " .. retries .. "/5)")
         end
     end
     
@@ -100,7 +98,6 @@ function RelayClient:connect(roomCode, playerId)
         self.connected = false
         return false
     end
-    print("RelayClient: Connected and joined room " .. self.roomCode)
     
     return true
 end
@@ -204,36 +201,28 @@ function RelayClient:poll()
                     print("RelayClient: Ignoring our own message: " .. (msg.type or "unknown") .. " from " .. (msg.id or "?"))
                 else
                     -- Translate protocol types to match LAN behavior
-                    if msg.type == Protocol.MSG.PLAYER_JOIN then 
+                    if msg.type == Protocol.MSG.PLAYER_JOIN then
                         msg.type = "player_joined"
-                        print("RelayClient: Decoded PLAYER_JOIN: id=" .. (msg.id or "?") .. ", x=" .. (msg.x or "?") .. ", y=" .. (msg.y or "?"))
-                    elseif msg.type == Protocol.MSG.PLAYER_LEAVE then 
+                    elseif msg.type == Protocol.MSG.PLAYER_LEAVE then
                         msg.type = "player_left"
-                        print("RelayClient: Decoded PLAYER_LEAVE: id=" .. (msg.id or "?"))
                     elseif msg.type == Protocol.MSG.PLAYER_MOVE then
                         msg.type = "player_moved"
-                        print("RelayClient: Received PLAYER_MOVE from " .. (msg.id or "?") .. " at (" .. (msg.x or "?") .. ", " .. (msg.y or "?") .. ")")
                     elseif msg.type == Protocol.MSG.PET_MOVE then
                         msg.type = "pet_moved"
-                        print("RelayClient: Received PET_MOVE for " .. (msg.id or "?") .. " at (" .. (msg.x or "?") .. ", " .. (msg.y or "?") .. ")")
                     elseif msg.type == Protocol.MSG.STATE_SNAPSHOT or msg.type == "state" then
                         msg.type = "state_snapshot"
                         -- State snapshots are very frequent, logging removed to reduce spam
                     elseif msg.type == Protocol.MSG.EVENT_BOON_GRANTED then
                         msg.type = "boon_granted"
-                        print("RelayClient: Received BOON_GRANTED")
                     elseif msg.type == Protocol.MSG.EVENT_PLAYER_DIED then
                         msg.type = "player_died"
-                        print("RelayClient: Received PLAYER_DIED")
                     elseif msg.type == Protocol.MSG.EVENT_BOON_STOLEN then
                         msg.type = "boon_stolen"
-                        print("RelayClient: Received BOON_STOLEN")
                     elseif msg.type == Protocol.MSG.CYCLE_TIME then
                         msg.type = "cycle"
                         -- Cycle updates are very frequent, logging removed to reduce spam
                     elseif msg.type == Protocol.MSG.EXTRACTION then
                         msg.type = "extract"
-                        print("RelayClient: Received EXTRACTION")
                     elseif msg.type == Protocol.MSG.PING then
                         -- Respond to ping with pong
                         local pongData = Protocol.encode(Protocol.MSG.PONG, msg.timestamp)
@@ -268,7 +257,6 @@ function RelayClient:poll()
                                 idx = idx + 5
                             end
                         end
-                        print("RelayClient: Received " .. count .. " NPCs from server")
                     elseif line:match("^animals%|") then
                         -- Parse Animal data: animals|count|x|y|spritePath|name|speed|groupCenterX|groupCenterY|groupRadius|...
                         msg = {type = "animals", animals = {}}
@@ -294,12 +282,8 @@ function RelayClient:poll()
                                 idx = idx + 8
                             end
                         end
-                        print("RelayClient: Received " .. count .. " animals from server")
                     elseif msg.type == Protocol.MSG.INPUT_SHOOT or msg.type == Protocol.MSG.INPUT_INTERACT then
                         -- Ignore our own inputs echoed back
-                        print("RelayClient: Ignoring echoed input: " .. (msg.type or "nil"))
-                    else
-                        print("RelayClient: Unknown message type: " .. (msg.type or "nil"))
                     end
                     -- Only add non-input messages (inputs are handled server-side)
                     if msg.type ~= Protocol.MSG.INPUT_SHOOT and msg.type ~= Protocol.MSG.INPUT_INTERACT then

@@ -52,14 +52,14 @@ function Renderer.collectDrawList(game)
         drawListIndex = drawListIndex + 1
     end
     
-    -- Trees (already returns pooled items from world)
-    local treeDrawList = game.world:getTreesForDrawing(game.chunkManager, game.camera)
+    -- Trees (use world cache if available, fallback to chunk system)
+    local treeDrawList = game.world:getTreesForDrawing(game.chunkManager, game.camera, game.worldCache)
     for _, treeItem in ipairs(treeDrawList) do
         addItem(treeItem)
     end
-    
-    -- Rocks (already returns pooled items from world)
-    local rockDrawList = game.world:getRocksForDrawing(game.chunkManager, game.camera)
+
+    -- Rocks (use world cache if available, fallback to chunk system)
+    local rockDrawList = game.world:getRocksForDrawing(game.chunkManager, game.camera, game.worldCache)
     for _, rockItem in ipairs(rockDrawList) do
         addItem(rockItem)
     end
@@ -98,24 +98,80 @@ function Renderer.collectDrawList(game)
         end
     end
     
-    -- NPCs
-    for _, npc in ipairs(game.npcs) do
-        if not game.chunkManager or game.chunkManager:isPositionActive(npc.x, npc.y) then
-            local item = drawListPool:acquire()
-            item.entity = npc
-            item.y = npc.y + (npc.height or 16)
-            addItem(item)
+    -- NPCs (use world cache for spatial filtering when available)
+    local cameraCenterX = game.camera and (game.camera.x + game.camera.width/2) or 0
+    local cameraCenterY = game.camera and (game.camera.y + game.camera.height/2) or 0
+    local viewRadius = 400  -- Draw NPCs within 400 pixels of camera
+
+    local nearbyNPCs = {}
+    if game.worldCache and game.worldCache:isReady() then
+        -- Use world cache for spatial queries
+        nearbyNPCs = game.worldCache:getNearbyNPCs(cameraCenterX, cameraCenterY, viewRadius)
+    else
+        -- Fallback to chunk-based filtering
+        for _, npc in ipairs(game.npcs or {}) do
+            if not game.chunkManager or game.chunkManager:isPositionActive(npc.x, npc.y) then
+                table.insert(nearbyNPCs, npc)
+            end
         end
     end
-    
-    -- Animals
-    for _, animal in ipairs(game.animals) do
-        if not game.chunkManager or game.chunkManager:isPositionActive(animal.x, animal.y) then
-            local item = drawListPool:acquire()
-            item.entity = animal
-            item.y = animal.y + (animal.height or 16)
-            addItem(item)
+
+    -- Limit NPCs drawn on MIYO to reduce CPU usage
+    if Constants.MIYOO_DEVICE and #nearbyNPCs > 5 then
+        table.sort(nearbyNPCs, function(a, b)
+            local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+            local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+            return distA < distB
+        end)
+        -- Keep only the closest 5 NPCs
+        local limitedNPCs = {}
+        for i = 1, math.min(5, #nearbyNPCs) do
+            limitedNPCs[i] = nearbyNPCs[i]
         end
+        nearbyNPCs = limitedNPCs
+    end
+
+    for _, npc in ipairs(nearbyNPCs) do
+        local item = drawListPool:acquire()
+        item.entity = npc
+        item.y = npc.y + (npc.height or 16)
+        addItem(item)
+    end
+
+    -- Animals (use world cache for spatial filtering when available)
+    local nearbyAnimals = {}
+    if game.worldCache and game.worldCache:isReady() then
+        -- Use world cache for spatial queries
+        nearbyAnimals = game.worldCache:getNearbyAnimals(cameraCenterX, cameraCenterY, viewRadius)
+    else
+        -- Fallback to chunk-based filtering
+        for _, animal in ipairs(game.animals or {}) do
+            if not game.chunkManager or game.chunkManager:isPositionActive(animal.x, animal.y) then
+                table.insert(nearbyAnimals, animal)
+            end
+        end
+    end
+
+    -- Limit animals drawn on MIYO to reduce CPU usage
+    if Constants.MIYOO_DEVICE and #nearbyAnimals > 10 then
+        table.sort(nearbyAnimals, function(a, b)
+            local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+            local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+            return distA < distB
+        end)
+        -- Keep only the closest 10 animals
+        local limitedAnimals = {}
+        for i = 1, math.min(10, #nearbyAnimals) do
+            limitedAnimals[i] = nearbyAnimals[i]
+        end
+        nearbyAnimals = limitedAnimals
+    end
+
+    for _, animal in ipairs(nearbyAnimals) do
+        local item = drawListPool:acquire()
+        item.entity = animal
+        item.y = animal.y + (animal.height or 16)
+        addItem(item)
     end
     
     -- Sort by Y position for depth ordering
@@ -186,7 +242,7 @@ function Renderer.drawWorld(game)
         love.graphics.push()
         love.graphics.translate(-math.floor(game.camera.x + 0.5), -math.floor(game.camera.y + 0.5))
         
-        game.world:drawFloor(game.camera)
+        game.world:drawFloor(game.camera, game.worldCache)
         
         local drawList = Renderer.collectDrawList(game)
         
@@ -225,7 +281,7 @@ function Renderer.drawWorld(game)
         -- Normal rendering without shader (Main Screen)
         game.camera:attach()
         
-        game.world:drawFloor(game.camera)
+        game.world:drawFloor(game.camera, game.worldCache)
         
         local drawList = Renderer.collectDrawList(game)
         

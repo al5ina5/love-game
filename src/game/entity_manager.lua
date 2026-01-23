@@ -109,26 +109,102 @@ function EntityManager.updateRemotePets(remotePets, dt, worldWidth, worldHeight)
     end
 end
 
--- Update NPCs (only in active chunks)
-function EntityManager.updateNPCs(npcs, dt, chunkManager)
-    for _, npc in ipairs(npcs) do
-        if not chunkManager or chunkManager:isPositionActive(npc.x, npc.y) then
-            npc:update(dt)
+-- Update NPCs (only nearby NPCs to prevent lag from hundreds of NPCs)
+function EntityManager.updateNPCs(npcs, dt, chunkManager, worldCache, camera)
+    -- If we have a world cache, only update nearby NPCs
+    -- Otherwise fall back to chunk-based filtering
+    local npcsToUpdate = npcs or {}
+
+    if worldCache and worldCache.isReady and worldCache:isReady() and camera then
+        -- Get NPCs near camera (same radius as rendering)
+        local cameraCenterX = camera.x + camera.width/2
+        local cameraCenterY = camera.y + camera.height/2
+        local updateRadius = 400  -- Update NPCs within 400 pixels
+
+        npcsToUpdate = worldCache:getNearbyNPCs(cameraCenterX, cameraCenterY, updateRadius)
+
+        -- Limit to prevent too many updates on MIYO
+        local Constants = require('src.constants')
+        local maxNPCs = Constants.MIYOO_DEVICE and 8 or 20
+        if #npcsToUpdate > maxNPCs then
+            table.sort(npcsToUpdate, function(a, b)
+                local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+                local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+                return distA < distB
+            end)
+            -- Keep only the closest NPCs
+            local limitedNPCs = {}
+            for i = 1, math.min(maxNPCs, #npcsToUpdate) do
+                limitedNPCs[i] = npcsToUpdate[i]
+            end
+            npcsToUpdate = limitedNPCs
         end
+    else
+        -- Fallback: filter by chunks (legacy behavior)
+        local filteredNPCs = {}
+        for _, npc in ipairs(npcs) do
+            if not chunkManager or chunkManager:isPositionActive(npc.x, npc.y) then
+                table.insert(filteredNPCs, npc)
+            end
+        end
+        npcsToUpdate = filteredNPCs
+    end
+
+    -- Update the filtered NPCs
+    for _, npc in ipairs(npcsToUpdate) do
+        npc:update(dt)
     end
 end
 
--- Update animals (only in active chunks)
-function EntityManager.updateAnimals(animals, dt, world, chunkManager, worldWidth, worldHeight)
-    for _, animal in ipairs(animals) do
-        if not chunkManager or chunkManager:isPositionActive(animal.x, animal.y) then
-            animal:update(dt, function(x, y, width, height)
-                return world:checkRockCollision(x, y, width, height, chunkManager) or
-                       world:checkWaterCollision(x, y, width, height) or
-                       world:checkTreeCollision(x, y, width, height, chunkManager)
+-- Update animals (only nearby animals to prevent lag from thousands of animals)
+function EntityManager.updateAnimals(animals, dt, world, chunkManager, worldWidth, worldHeight, worldCache, camera)
+    -- If we have a world cache, only update nearby animals
+    -- Otherwise fall back to chunk-based filtering
+    local animalsToUpdate = animals or {}
+
+    if worldCache and worldCache.isReady and worldCache:isReady() and camera then
+        -- Get animals near camera (same radius as rendering)
+        local cameraCenterX = camera.x + camera.width/2
+        local cameraCenterY = camera.y + camera.height/2
+        local updateRadius = 500  -- Update animals within 500 pixels (larger than render radius)
+
+        animalsToUpdate = worldCache:getNearbyAnimals(cameraCenterX, cameraCenterY, updateRadius)
+
+        -- Limit to prevent too many updates on MIYO
+        local Constants = require('src.constants')
+        local maxAnimals = Constants.MIYOO_DEVICE and 15 or 50
+        if #animalsToUpdate > maxAnimals then
+            table.sort(animalsToUpdate, function(a, b)
+                local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
+                local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
+                return distA < distB
             end)
-            EntityManager.clampToBounds(animal, worldWidth, worldHeight)
+            -- Keep only the closest animals
+            local limitedAnimals = {}
+            for i = 1, math.min(maxAnimals, #animalsToUpdate) do
+                limitedAnimals[i] = animalsToUpdate[i]
+            end
+            animalsToUpdate = limitedAnimals
         end
+    else
+        -- Fallback: filter by chunks (legacy behavior)
+        local filteredAnimals = {}
+        for _, animal in ipairs(animals) do
+            if not chunkManager or chunkManager:isPositionActive(animal.x, animal.y) then
+                table.insert(filteredAnimals, animal)
+            end
+        end
+        animalsToUpdate = filteredAnimals
+    end
+
+    -- Update the filtered animals
+    for _, animal in ipairs(animalsToUpdate) do
+        animal:update(dt, function(x, y, width, height)
+            return world:checkRockCollision(x, y, width, height, chunkManager) or
+                   world:checkWaterCollision(x, y, width, height) or
+                   world:checkTreeCollision(x, y, width, height, chunkManager)
+        end)
+        EntityManager.clampToBounds(animal, worldWidth, worldHeight)
     end
 end
 
@@ -141,8 +217,8 @@ function EntityManager.updateAll(game, dt)
     EntityManager.updatePet(game.pet, dt, game.world, game.chunkManager, worldWidth, worldHeight)
     EntityManager.updateRemotePlayers(game.remotePlayers, dt, worldWidth, worldHeight)
     EntityManager.updateRemotePets(game.remotePets, dt, worldWidth, worldHeight)
-    EntityManager.updateNPCs(game.npcs, dt, game.chunkManager)
-    EntityManager.updateAnimals(game.animals, dt, game.world, game.chunkManager, worldWidth, worldHeight)
+    EntityManager.updateNPCs(game.npcs, dt, game.chunkManager, game.worldCache, game.camera)
+    EntityManager.updateAnimals(game.animals, dt, game.world, game.chunkManager, worldWidth, worldHeight, game.worldCache, game.camera)
 end
 
 return EntityManager

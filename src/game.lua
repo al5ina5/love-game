@@ -50,6 +50,9 @@ local Game = {
     desaturationShader = nil,
     worldCanvas = nil,
 
+    -- World cache for MIYO performance optimization
+    worldCache = nil,
+
     -- Network polling optimization for Miyoo
     lastNetworkPoll = 0,
     networkPollInterval = Constants.MIYOO_NETWORK_POLL_RATE, -- Miyoo-tuned polling rate
@@ -129,6 +132,9 @@ function Game:load()
 
     self.npcs = {}
     self.animals = {}
+
+    -- NPCs and animals are now loaded dynamically in renderer to avoid loading thousands of entities
+    -- They come from server state for networked games, or from world cache for spatial queries
     
     -- Initialize map (after world and player are created)
     self.map = Map:new(self.world, self.player)
@@ -157,6 +163,19 @@ end
 
 function Game:update(dt)
     if not self.loadingComplete then
+        -- Emergency timeout for MIYO loading
+        self.loadingTimer = (self.loadingTimer or 0) + dt
+        local Constants = require('src.constants')
+        local timeout = Constants.MIYOO_DEVICE and 30 or 60  -- MIYO: 30 seconds, Desktop: 60 seconds
+
+        if self.loadingTimer > timeout then
+            print(string.format("Game: EMERGENCY - Loading timeout after %.1f seconds, forcing completion", self.loadingTimer))
+            self.loadingComplete = true
+            self.loadingMessage = "Loading timeout - continuing anyway"
+            self.loadingProgress = 1.0
+            return
+        end
+
         Input:update()
         Loading.complete(self)
         return
@@ -189,9 +208,6 @@ function Game:update(dt)
         local networkPlayerId = self.network:getPlayerId()
         if networkPlayerId and networkPlayerId ~= self.playerId then
             -- Player ID changed (e.g., server assigned "p1" instead of "host"/"client")
-            if self.playerId and (self.playerId == "host" or self.playerId == "client") then
-                print("Game: Updating playerId from " .. self.playerId .. " to " .. networkPlayerId)
-            end
             self.playerId = networkPlayerId
         elseif not self.playerId and networkPlayerId then
             self.playerId = networkPlayerId
@@ -228,13 +244,31 @@ function Game:update(dt)
         end
     end
     
+    -- World update (with error handling for MIYO stability)
     if self.world and self.player and self.player.x and self.player.y and self.network then
-        self.world:update(dt, self.player.x, self.player.y, self.network)
+        local success, err = pcall(function()
+            self.world:update(dt, self.player.x, self.player.y, self.network)
+        end)
+        if not success then
+            print("ERROR: World update failed: " .. tostring(err))
+        end
     end
-    
-    EntityManager.updateAll(self, dt)
-    
-    NetworkUpdater.update(self, dt)
+
+    -- Entity updates (with error handling for MIYO stability)
+    local success, err = pcall(function()
+        EntityManager.updateAll(self, dt)
+    end)
+    if not success then
+        print("ERROR: Entity update failed: " .. tostring(err))
+    end
+
+    -- Network updates (with error handling for MIYO stability)
+    success, err = pcall(function()
+        NetworkUpdater.update(self, dt)
+    end)
+    if not success then
+        print("ERROR: Network update failed: " .. tostring(err))
+    end
 
     -- Throttle network polling for Miyoo performance
     -- Only poll network at reduced frequency to prevent micro-stutters
@@ -361,7 +395,6 @@ function Game:handleShoot()
     end
     
     if not self.isHost and not self.network:isConnected() then
-        print("Game: Cannot shoot - not connected")
         return
     end
     
@@ -532,16 +565,29 @@ function Game:logMemoryUsage(dt)
     if self.memLogTimer >= 1.0 then
         self.memLogTimer = 0
         local count = collectgarbage("count")
-        
+
         local npcCount = self.npcs and #self.npcs or 0
         local animalCount = self.animals and #self.animals or 0
         local remoteCount = 0
         if self.remotePlayers then for _ in pairs(self.remotePlayers) do remoteCount = remoteCount + 1 end end
         local petriCount = 0
         if self.remotePets then for _ in pairs(self.remotePets) do petriCount = petriCount + 1 end end
-        
-        print(string.format("Mem: %.2f MB | NPC: %d | Animal: %d | Remote: %d | Pets: %d", 
-            count / 1024, npcCount, animalCount, remoteCount, petriCount))
+
+        -- Also log world cache status
+        local worldCacheStatus = "No Cache"
+        if self.worldCache then
+            if self.worldCache:isReady() then
+                worldCacheStatus = string.format("Ready (%d chunks)", self.worldCache:getChunkCount())
+            else
+                worldCacheStatus = "Loading"
+            end
+        end
+
+
+        -- Force garbage collection periodically to prevent memory creep
+        if Constants.MIYOO_DEVICE then
+            collectgarbage("collect")
+        end
     end
 end
 

@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "name": "PIXELRAIDERS",
+    "items": ["PIXELRAIDERS.sh"],
+    "items_opt": [],
+    "attr": {
+        "title": "Pixel Raiders",
+        "desc": "Multiplayer walking simulator boilerplate.",
+        "inst": "D-Pad to move. X/Y for Menu. Host on one device, Find on another!",
+        "genres": ["multiplayer", "sim"],
+        "porter": "Antigravity",
+        "runtime": "love-11.4"
+    }
+}

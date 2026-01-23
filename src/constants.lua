@@ -11,7 +11,6 @@ local Constants = {}
 -- 3. config.lua file: Constants.USE_LOCAL_API = true
 
 local env_value = os.getenv("USE_LOCAL_API")
-print("Constants: USE_LOCAL_API env value = " .. tostring(env_value))
 
 -- Helper function to parse .env file content
 local function parseEnvContent(content)
@@ -46,12 +45,10 @@ if love and love.filesystem then
         end
     end)
     if success and contents then
-        print("Constants: Reading .env via love.filesystem")
         env_vars = parseEnvContent(contents)
         -- Only override env_value if it wasn't set via environment variable
         if not env_value and env_vars["USE_LOCAL_API"] then
             env_value = env_vars["USE_LOCAL_API"]
-            print("Constants: Found USE_LOCAL_API in .env file (via love.filesystem): " .. tostring(env_value))
         end
     end
 end
@@ -72,7 +69,6 @@ if not next(env_vars) then
     for _, path in ipairs(env_paths) do
         local env_file = io.open(path, "r")
         if env_file then
-            print("Constants: Trying to read .env from: " .. path)
             local content = env_file:read("*all")
             env_file:close()
             if content then
@@ -80,7 +76,6 @@ if not next(env_vars) then
                 -- Only override env_value if it wasn't set via environment variable
                 if not env_value and env_vars["USE_LOCAL_API"] then
                     env_value = env_vars["USE_LOCAL_API"]
-                    print("Constants: Found USE_LOCAL_API in .env file: " .. tostring(env_value) .. " (from " .. path .. ")")
                 end
                 if next(env_vars) then
                     break

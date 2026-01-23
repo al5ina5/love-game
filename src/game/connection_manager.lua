@@ -59,7 +59,6 @@ function ConnectionManager.connectToServer(address, port, game)
     game.discovery:stopAdvertising()
     local client = Client:new()
     game.network = NetworkAdapter:createLAN(client, nil)
-    print("Connection: Attempting to connect to " .. address .. ":" .. port)
     client:connect(address or "localhost", port or 12345)
     game.connectionManager.connectionTimer = 0
 end
@@ -72,13 +71,11 @@ function ConnectionManager.update(dt, game)
         local client = game.network.client
         if client and client.playerId then
             game.playerId = client.playerId
-            print("Connection: Client connected with playerId: " .. game.playerId)
         end
     elseif game.network and game.network.type == NetworkAdapter.TYPE.LAN and not game.isHost and not game.playerId then
         -- Client is trying to connect, check for timeout
         cm.connectionTimer = cm.connectionTimer + dt
         if cm.connectionTimer >= cm.connectionTimeout then
-            print("Connection: Timeout after " .. cm.connectionTimeout .. " seconds")
             if game.network then
                 game.network:disconnect()
                 game.network = nil
@@ -100,7 +97,6 @@ function ConnectionManager.update(dt, game)
 end
 
 function ConnectionManager.returnToMainMenu(game)
-    print("Connection: Returning to main menu")
     
     -- Clean up LAN hosting
     if game.isHost then
@@ -132,6 +128,7 @@ end
 -- Online multiplayer functions
 
 function ConnectionManager.hostOnline(isPublic, game)
+    print("Connection: hostOnline called with isPublic=" .. tostring(isPublic))
     if not OnlineClient.isAvailable() then
         print("Connection: Online multiplayer not available (HTTPS support not found)")
         if game.menu then
@@ -140,7 +137,6 @@ function ConnectionManager.hostOnline(isPublic, game)
         return false
     end
     
-    print("Connection: Creating online room (public: " .. tostring(isPublic) .. ")")
     
     local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
     if not success then
@@ -164,10 +160,8 @@ function ConnectionManager.hostOnline(isPublic, game)
     end
     
     local roomCode = roomCodeOrError
-    print("Connection: Online room created with code: " .. roomCode)
     
     -- Setup relay client (TCP)
-    print("Connection: Attempting to connect to relay server...")
     local relayClient = RelayClient:new()
     if not relayClient:connect(roomCode, "host") then
         print("Connection: Failed to connect to relay server")
@@ -183,7 +177,6 @@ function ConnectionManager.hostOnline(isPublic, game)
     -- Setup network adapter (only if relay connected successfully)
     if relayClient.connected then
         game.network = NetworkAdapter:createRelay(relayClient)
-        print("Connection: Network adapter created with relay client")
         
         -- For RELAY mode host, create local server with serverLogic (like LAN mode)
         -- The relay is only for forwarding messages, but host runs game logic locally
@@ -197,7 +190,6 @@ function ConnectionManager.hostOnline(isPublic, game)
                 localServer.serverLogic:spawnInitialChests(10)
                 localServer.serverLogic:spawnNPCs()
                 localServer.serverLogic:spawnAnimals()
-                print("Connection: Created local serverLogic for relay host")
             end
         else
             print("Connection: WARNING - Failed to create local serverLogic for relay host!")
@@ -223,9 +215,8 @@ function ConnectionManager.hostOnline(isPublic, game)
     if game.menu then
         game.menu.onlineRoomCode = roomCode
         game.menu:hide()  -- Hide menu so player can play alone until someone joins
-        print("Connection: Room created with code: " .. roomCode .. " (menu hidden, player can play)")
     end
-    
+
     return true
 end
 
@@ -238,7 +229,6 @@ function ConnectionManager.joinOnline(roomCode, game)
         return false
     end
     
-    print("Connection: Joining online room " .. roomCode)
     
     local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
     if not success then
@@ -259,7 +249,6 @@ function ConnectionManager.joinOnline(roomCode, game)
         return false
     end
     
-    print("Connection: Successfully joined online room")
     
     -- Setup relay client (TCP)
     local relayClient = RelayClient:new()
@@ -287,12 +276,9 @@ function ConnectionManager.joinOnline(roomCode, game)
         encoded = encoded .. "|" .. skin
     end
     relayClient:send(encoded)
-    print("Connection: Client sent initial PLAYER_JOIN message at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ") with skin: " .. (skin or "none"))
-    
     -- Hide menu so client can play immediately
     if game.menu then
         game.menu:hide()  -- Hide menu so player can play immediately
-        print("Connection: Client connected, menu hidden, player can play")
     end
     
     return true
@@ -308,7 +294,6 @@ function ConnectionManager.refreshOnlineRooms(game)
         return
     end
     
-    print("Connection: Refreshing online rooms list")
     
     local success, onlineClient = pcall(OnlineClient.new, OnlineClient)
     if not success then
@@ -322,7 +307,6 @@ function ConnectionManager.refreshOnlineRooms(game)
     
     local rooms = onlineClient:listRooms()
     
-    print("Connection: Found " .. #rooms .. " online rooms")
     if game.menu then
         game.menu.publicRooms = rooms
     end
@@ -354,7 +338,6 @@ function ConnectionManager.updateOnline(dt, game)
                 encoded = encoded .. "|" .. skin
             end
             relayClient:send(encoded)
-            print("Connection: Host sent PLAYER_JOIN when paired at (" .. math.floor(playerX) .. ", " .. math.floor(playerY) .. ") with skin: " .. (skin or "none"))
             cm.hostSentJoin = true
         end
     end
