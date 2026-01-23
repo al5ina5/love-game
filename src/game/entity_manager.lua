@@ -152,7 +152,9 @@ function EntityManager.updateNPCs(npcs, dt, chunkManager, worldCache, camera)
 
     -- Update the filtered NPCs
     for _, npc in ipairs(npcsToUpdate) do
-        npc:update(dt)
+        if type(npc.update) == "function" then
+            npc:update(dt)
+        end
     end
 end
 
@@ -199,11 +201,13 @@ function EntityManager.updateAnimals(animals, dt, world, chunkManager, worldWidt
 
     -- Update the filtered animals
     for _, animal in ipairs(animalsToUpdate) do
-        animal:update(dt, function(x, y, width, height)
-            return world:checkRockCollision(x, y, width, height, chunkManager) or
-                   world:checkWaterCollision(x, y, width, height) or
-                   world:checkTreeCollision(x, y, width, height, chunkManager)
-        end)
+        if type(animal.update) == "function" then
+            animal:update(dt, function(x, y, width, height)
+                return world:checkRockCollision(x, y, width, height, chunkManager) or
+                       world:checkWaterCollision(x, y, width, height) or
+                       world:checkTreeCollision(x, y, width, height, chunkManager)
+            end)
+        end
         EntityManager.clampToBounds(animal, worldWidth, worldHeight)
     end
 end

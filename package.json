@@ -6,6 +6,10 @@
     "scripts": {
         "start": "/Applications/love.app/Contents/MacOS/love .",
         "build": "./build_portmaster.sh",
+        "dist:windows": "./build/desktop/build.sh windows",
+        "dist:windows:discord": "./build/desktop/build.sh discord",
+        "dist:mac": "./build/desktop/build.sh macos",
+        "dist:clean": "./build/desktop/build.sh clean",
         "deploy": "./deploy.sh",
         "tools:collision": "npm run dev --prefix tools/collision-editor",
         "multi": "/Applications/love.app/Contents/MacOS/love . & /Applications/love.app/Contents/MacOS/love ."

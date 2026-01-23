@@ -133,14 +133,14 @@ end
 
 -- Desaturation effect: Set to false to disable timer-based desaturation for development
 -- When enabled, the game will gradually lose saturation as the timer approaches 0
-Constants.ENABLE_DESATURATION_EFFECT = false
+Constants.ENABLE_DESATURATION_EFFECT = env_vars["ENABLE_DESATURATION_EFFECT"] == "true" or false
 
 -- Dev mode: show debug visuals (e.g. faint lines from player to NPCs for distance)
-Constants.DEV_MODE = true
-Constants.DEV_SPRINT_MULTIPLIER = 5.0 -- Much faster for dev
+Constants.DEV_MODE = env_vars["DEV_MODE"] == "true" or (env_vars["DEV_MODE"] == nil and true)
+Constants.DEV_SPRINT_MULTIPLIER = tonumber(env_vars["DEV_SPRINT_MULTIPLIER"]) or 5.0 -- Much faster for dev
 
 -- Temporarily disable chest interactions
-Constants.DISABLE_CHESTS = true
+Constants.DISABLE_CHESTS = env_vars["DISABLE_CHESTS"] == "true" or (env_vars["DISABLE_CHESTS"] == nil and true)
 
 -- Miyoo device detection and optimization
 Constants.MIYOO_DEVICE = false

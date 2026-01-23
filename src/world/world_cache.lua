@@ -4,6 +4,8 @@
 
 local Constants = require('src.constants')
 local dkjson = require('src.lib.dkjson')
+local NPC = require('src.entities.npc')
+local Animal = require('src.entities.animal')
 
 local WorldCache = {}
 WorldCache.__index = WorldCache
@@ -108,6 +110,43 @@ function WorldCache:downloadWorldData()
     -- Store the world data
     self.worldData = responseData
     self.isLoaded = true
+
+    -- Hydrate NPCs
+    if self.worldData.npcs then
+        local hydratedNpcs = {}
+        for i, npc in ipairs(self.worldData.npcs) do
+            local hydratedNpc = NPC:new(
+                npc.x or 0,
+                npc.y or 0,
+                npc.spritePath or "",
+                npc.name or "NPC",
+                npc.dialogue or {}
+            )
+            hydratedNpc.id = npc.id or ("npc_" .. i)
+            table.insert(hydratedNpcs, hydratedNpc)
+        end
+        self.worldData.npcs = hydratedNpcs
+    end
+
+    -- Hydrate Animals
+    if self.worldData.animals then
+        local hydratedAnimals = {}
+        for i, animal in ipairs(self.worldData.animals) do
+            local hydratedAnimal = Animal:new(
+                animal.x or 0,
+                animal.y or 0,
+                animal.spritePath or "",
+                animal.name or "Animal",
+                animal.speed or 30
+            )
+            hydratedAnimal.id = animal.id or ("animal_" .. i)
+            if animal.groupCenterX and animal.groupCenterY and animal.groupRadius then
+                hydratedAnimal:setGroupCenter(animal.groupCenterX, animal.groupCenterY, animal.groupRadius)
+            end
+            table.insert(hydratedAnimals, hydratedAnimal)
+        end
+        self.worldData.animals = hydratedAnimals
+    end
 
     -- Log world data stats before spatial indexing
     local chunkCount = self:getChunkCount()

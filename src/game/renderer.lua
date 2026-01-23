@@ -253,7 +253,12 @@ function Renderer.drawWorld(game)
             elseif item.type == "tree" then
                 game.world:drawTree(item)
             elseif item.entity then
-                item.entity:draw()
+                if type(item.entity.draw) == "function" then
+                    item.entity:draw()
+                else
+                    -- Fallback or warning if entity has no draw method
+                    -- print("Warning: Entity in drawList missing draw method", item.entity.type or "unknown")
+                end
             end
         end
 
@@ -292,7 +297,11 @@ function Renderer.drawWorld(game)
             elseif item.type == "tree" then
                 game.world:drawTree(item)
             elseif item.entity then
-                item.entity:draw()
+                if type(item.entity.draw) == "function" then
+                    item.entity:draw()
+                else
+                    -- Fallback or warning
+                end
             end
         end
         

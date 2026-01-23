@@ -207,8 +207,11 @@ build_love() {
     # Create a production .env file to ensure we use the real server
     # This ensures USE_LOCAL_API is not set to true
     local temp_env="$BUILD_DIR/.env.production"
-    echo "# Production build - using real server" > "$temp_env"
+    echo "# Production build - auto-generated" > "$temp_env"
     echo "USE_LOCAL_API=false" >> "$temp_env"
+    echo "DEV_MODE=false" >> "$temp_env"
+    echo "ENABLE_DESATURATION_EFFECT=true" >> "$temp_env"
+    echo "DISABLE_CHESTS=false" >> "$temp_env"
     
     # Remove old .love file if exists
     rm -f "$BUILD_DIR/${GAME_NAME}.love"
@@ -226,6 +229,9 @@ build_love() {
         -x "*.git*" \
         -x "dist/*" \
         -x "build/*" \
+        -x "server/*" \
+        -x "tools/*" \
+        -x "node_modules/*" \
         -x "*.DS_Store" \
         -x "relay/*" \
         -x "docs/*" \
@@ -234,6 +240,8 @@ build_love() {
         -x "raw_udp_test.lua" \
         -x "debug/*" \
         -x ".env.backup" \
+        -x "yarn.lock" \
+        -x "package-lock.json" \
         > /dev/null 2>&1
     
     # Restore original .env if it existed
@@ -302,6 +310,45 @@ start "" "%~dp0\\${GAME_NAME}.exe"
 EOF
     
     print_success "Built Windows version: $win_dir/"
+}
+
+# Zip Windows version
+zip_windows() {
+    print_step "Zipping Windows version..."
+    
+    local win_dir_name="${GAME_NAME}-win64"
+    local zip_file="${win_dir_name}.zip"
+    
+    cd "$BUILD_DIR"
+    rm -f "$zip_file"
+    zip -q -r "$zip_file" "$win_dir_name"
+    cd "$PROJECT_ROOT"
+    
+    print_success "Created Windows zip: $BUILD_DIR/$zip_file ($(du -h "$BUILD_DIR/$zip_file" | cut -f1))"
+}
+
+# Notify Discord via Webhook
+notify_discord() {
+    local webhook_url="https://discord.com/api/webhooks/1464381111831494788/7bvTR9ruv7wvxZeuSYeLnNES6U_kU5iHMKGqjtdWZn71ST7kyQdKPpdCLKSP9Vt1iRJr"
+    local zip_file="$BUILD_DIR/${GAME_NAME}-win64.zip"
+    
+    if [ ! -f "$zip_file" ]; then
+        print_error "Zip file not found: $zip_file"
+        return 1
+    fi
+    
+    print_step "Uploading to Discord..."
+    
+    local response=$(curl -s -w "\n%{http_code}" -F "file=@$zip_file" -F "payload_json={\"content\": \"🚀 **New Windows Build Ready!**\nBuild Date: $(date)\nSize: $(du -h "$zip_file" | cut -f1)\"}" "$webhook_url")
+    local http_code=$(echo "$response" | tail -n1)
+    
+    if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 204 ]; then
+        print_success "Successfully uploaded to Discord!"
+    else
+        print_error "Failed to upload to Discord (HTTP $http_code)"
+        echo "$response" | head -n -1
+        return 1
+    fi
 }
 
 # Build macOS version
@@ -550,6 +597,13 @@ main() {
         windows)
             build_love
             build_windows
+            zip_windows
+            ;;
+        discord)
+            build_love
+            build_windows
+            zip_windows
+            notify_discord
             ;;
         macos)
             build_love
