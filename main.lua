@@ -118,6 +118,14 @@ function love.mousepressed(x, y, button)
     Game:mousepressed(x, y, button)
 end
 
+function love.wheelmoved(x, y)
+    -- Only allow zoom in dev mode
+    local Constants = require('src.constants')
+    if Constants.DEV_MODE and Game.camera then
+        Game.camera:adjustZoom(y)
+    end
+end
+
 function love.quit()
     Game:quit()
 end

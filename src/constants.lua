@@ -141,7 +141,8 @@ end
 Constants.ENABLE_DESATURATION_EFFECT = false
 
 -- Dev mode: show debug visuals (e.g. faint lines from player to NPCs for distance)
-Constants.DEV_MODE = false
+Constants.DEV_MODE = true
+Constants.DEV_SPRINT_MULTIPLIER = 5.0 -- Much faster for dev
 
 -- Temporarily disable chest interactions
 Constants.DISABLE_CHESTS = true
@@ -155,16 +156,27 @@ local function detectMiyoo()
     if os.getenv("MIYOO") or os.getenv("MIYOO_DEVICE") then
         return true
     end
+    
+    -- Check for Portmaster environment (common on Miyoo devices)
+    if os.getenv("PORTMASTER") or os.getenv("PORTMASTER_HOME") then
+        return true
+    end
 
     -- Check for Miyoo-specific screen resolution (320x240 is common)
     if love and love.graphics then
-        pcall(function()
+        local success, result = pcall(function()
             local width = love.graphics.getWidth()
             local height = love.graphics.getHeight()
-            if width == 320 and height == 240 then
+            -- Miyoo Mini/Mini+ common resolutions
+            if (width == 320 and height == 240) or 
+               (width == 640 and height == 480) then
                 return true
             end
+            return false
         end)
+        if success and result then
+            return true
+        end
     end
 
     -- Check for Miyoo-specific CPU/memory constraints
@@ -178,6 +190,11 @@ Constants.MIYOO_DEVICE = detectMiyoo()
 -- Miyoo-specific performance tuning
 if Constants.MIYOO_DEVICE then
     print("Constants: Detected Miyoo device - applying optimizations")
+
+    -- Miyoo performance optimizations
+    Constants.MIYOO_NETWORK_POLL_RATE = 1/20  -- 20Hz network polling for Miyoo
+    Constants.MIYOO_TARGET_FPS = 30  -- Lower FPS for Miyoo to reduce CPU usage
+    Constants.MIYOO_FRAME_SLEEP_ENABLED = true
 
     -- More aggressive prediction settings for higher latency
     Constants.MIYOO_PREDICTION_CORRECTION_SPEED = 3.0  -- Faster correction
@@ -193,8 +210,12 @@ if Constants.MIYOO_DEVICE then
     Constants.MIYOO_REMOTE_LERP_SPEED = 6
     Constants.MIYOO_MAX_EXTRAPOLATION_TIME = 0.3  -- Shorter extrapolation
 
+    -- Disable expensive rendering features
+    Constants.ENABLE_DESATURATION_EFFECT = false  -- Disable shader effects
+    Constants.DEV_MODE = false  -- Disable debug rendering
+
 else
-    -- Default settings for other devices
+    -- Default settings for other devices (PC/Mac/Linux)
     Constants.MIYOO_PREDICTION_CORRECTION_SPEED = 5.0
     Constants.MIYOO_MAX_PREDICTION_ERROR = 50
     Constants.MIYOO_INTERPOLATION_SPEED = 8
@@ -206,10 +227,40 @@ else
     Constants.MIYOO_REMOTE_LERP_SPEED = 8
     Constants.MIYOO_MAX_EXTRAPOLATION_TIME = 0.5
 
-    -- Miyoo performance optimizations
-    Constants.MIYOO_NETWORK_POLL_RATE = 1/20  -- 20Hz network polling for Miyoo
-    Constants.MIYOO_TARGET_FPS = 60
-    Constants.MIYOO_FRAME_SLEEP_ENABLED = true
+    -- Performance settings for desktop
+    Constants.MIYOO_NETWORK_POLL_RATE = 1/30  -- 30Hz network polling for desktop
+    Constants.MIYOO_TARGET_FPS = 60  -- Full 60 FPS for desktop
+    Constants.MIYOO_FRAME_SLEEP_ENABLED = false  -- No frame sleeping on desktop
 end
+
+
+
+-- World Generation Feature Toggles (Debugging)
+Constants.ENABLE_GENERATION_TREES = true
+Constants.ENABLE_GENERATION_WATER = true
+Constants.ENABLE_GENERATION_ROADS = true
+
+-- Debug Logging
+Constants.ENABLE_MEMORY_LOGGING = true
+
+-- Water Collision Masks (0-16 range within a tile)
+-- IDs match WATER_TILES in water_generator.lua
+Constants.WATER_COLLISION_MASKS = {
+    [1] = { {x = 4, y = 4, w = 12, h = 12} }, -- CORNER_NW (Water in Bottom-Right)
+    [3] = { {x = 0, y = 4, w = 12, h = 12} }, -- CORNER_NE (Water in Bottom-Left)
+    [7] = { {x = 4, y = 0, w = 12, h = 12} }, -- CORNER_SW (Water in Top-Right)
+    [9] = { {x = 0, y = 0, w = 12, h = 12} }, -- CORNER_SE (Water in Top-Left)
+    [2] = { {x = 0, y = 4, w = 16, h = 12} }, -- EDGE_N (Water in Bottom)
+    [8] = { {x = 0, y = 0, w = 16, h = 12} }, -- EDGE_S (Water in Top)
+    [4] = { {x = 4, y = 0, w = 12, h = 16} }, -- EDGE_W (Water in Right)
+    [6] = { {x = 0, y = 0, w = 12, h = 16} }, -- EDGE_E (Water in Left)
+    [5] = { {x = 0, y = 0, w = 16, h = 16} }, -- CENTER (Full tile)
+    
+    -- Inner Corners (Mainly water, small grass corner)
+    [14] = { {x = 4, y = 0, w = 12, h = 16}, {x = 0, y = 4, w = 4, h = 12} }, -- INNER_NW (Grass in top-left)
+    [13] = { {x = 0, y = 0, w = 12, h = 16}, {x = 12, y = 4, w = 4, h = 12} }, -- INNER_NE (Grass in top-right)
+    [11] = { {x = 0, y = 0, w = 12, h = 16}, {x = 12, y = 0, w = 4, h = 12} }, -- INNER_SW (Grass in bottom-left)
+    [10] = { {x = 4, y = 0, w = 12, h = 16}, {x = 0, y = 0, w = 4, h = 12} }, -- INNER_SE (Grass in bottom-right)
+}
 
 return Constants

@@ -289,4 +289,24 @@ end
 -- Note: Protocol.MSG.EXTRACTION is "extract", so it already has a handler above
 -- We don't need to register it again to avoid overwriting the handler
 
+messageHandlers[Protocol.MSG.CHUNK_DATA] = function(msg, game)
+    if game.world and msg.cx and msg.cy and msg.data then
+        game.world:loadChunkData(msg.cx, msg.cy, msg.data)
+    end
+end
+
+-- Handle NPCs message from server
+messageHandlers["npcs"] = function(msg, game)
+    if msg.npcs then
+        EntityDataHandler.handleNPCData(msg.npcs, game)
+    end
+end
+
+-- Handle Animals message from server
+messageHandlers["animals"] = function(msg, game)
+    if msg.animals then
+        EntityDataHandler.handleAnimalsData(msg.animals, game)
+    end
+end
+
 return NetworkHandler

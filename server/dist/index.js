@@ -88,6 +88,10 @@ app.post('/api/heartbeat', (req, res) => {
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
+// Ping endpoint for latency testing
+app.get('/ping', (req, res) => {
+    res.json({ timestamp: Date.now() });
+});
 app.listen(HTTP_PORT, '0.0.0.0', () => {
     console.log(`[HTTP] Matchmaker listening on port ${HTTP_PORT}`);
 });
@@ -124,10 +128,29 @@ const tcpServer = net_1.default.createServer((socket) => {
                 // Generate player ID
                 const playerId = `p${roomData.sockets.size + 1}`;
                 roomData.sockets.set(socket, playerId);
-                // Add player to game server
+                // Add player to game server (will scatter spawn automatically)
                 roomData.gameServer.addPlayer(playerId);
+                // Get the actual spawn position from the game server
+                const player = roomData.gameServer['state'].players[playerId];
+                const spawnX = player ? Math.floor(player.x) : 2500;
+                const spawnY = player ? Math.floor(player.y) : 2500;
                 // Send player their ID and initial state
-                socket.write(`join|${playerId}|800|600\n`); // Spawn at center
+                socket.write(`join|${playerId}|${spawnX}|${spawnY}\n`);
+                // Send NPC data (server-authoritative)
+                const npcs = roomData.gameServer.getNPCs();
+                if (npcs.length > 0) {
+                    const npcParts = ['npcs', npcs.length.toString()];
+                    for (const npc of npcs) {
+                        npcParts.push(Math.floor(npc.x).toString());
+                        npcParts.push(Math.floor(npc.y).toString());
+                        npcParts.push(npc.spritePath || '');
+                        npcParts.push(npc.name || 'NPC');
+                        // Encode dialogue as JSON
+                        const dialogueJson = JSON.stringify(npc.dialogue || []);
+                        npcParts.push(dialogueJson);
+                    }
+                    socket.write(npcParts.join('|') + '\n');
+                }
                 const stateJson = roomData.gameServer.getStateSnapshot();
                 socket.write(`state|${stateJson}\n`);
                 // Update room player count
@@ -174,14 +197,24 @@ const tcpServer = net_1.default.createServer((socket) => {
                         // Interact input - server handles it
                         roomData.gameServer.handleInteract(playerId);
                         // Don't echo back to sender, state will be broadcast
-                    }
-                    else if (msgType === 'pet_move') {
-                        // Pet position - just relay (not authoritative)
                         roomData.sockets.forEach((_, s) => {
                             if (s !== socket) {
                                 s.write(line + '\n');
                             }
                         });
+                    }
+                    else if (msgType === 'chunk') {
+                        // Chunk request: chunk|cx|cy
+                        const cx = parseInt(parts[1]);
+                        const cy = parseInt(parts[2]);
+                        if (!isNaN(cx) && !isNaN(cy)) {
+                            const chunkData = roomData.gameServer.getChunkData(cx, cy);
+                            if (chunkData) {
+                                // Send chunk data back
+                                const json = JSON.stringify(chunkData);
+                                socket.write(`chunk|${cx}|${cy}|${json}\n`);
+                            }
+                        }
                     }
                     else {
                         // Unknown message type - just relay

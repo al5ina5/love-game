@@ -59,9 +59,10 @@ function Loading.complete(game)
             game.loadingProgress = 0.5
             game:createNPCs()
 
-            game.loadingMessage = "Creating animals..."
+            -- Animals now come from server in all modes
+            game.loadingMessage = "Waiting for server..."
             game.loadingProgress = 0.65
-            game:createAnimalGroups()
+            -- game:createAnimalGroups() -- DISABLED: Animals now server-authoritative
         else
             -- For networked games, NPCs and animals come from server state
             game.loadingMessage = "Waiting for server..."
@@ -72,16 +73,14 @@ function Loading.complete(game)
         game.loadingProgress = 0.8
 
         -- Generate roads connecting key locations
-        game.loadingMessage = "Building roads..."
-        game.loadingProgress = 0.85
-        game:generateWorldRoads()
+        game.loadingMessage = "Preparing world..."
+        -- game:generateWorldRoads() -- Disabled: Server handles chunks now
 
-        game.loadingMessage = "Connecting..."
+        game.loadingMessage = "Ready!"
         game.loadingProgress = 0.9
         
-        pcall(function()
-            game:autoJoinOrCreateServer()
-        end)
+        -- Network connection moved to after loading completes
+        -- This prevents freeze on low-powered devices like Miyoo
         
         game.loadingProgress = 1.0
         game.loadingComplete = true

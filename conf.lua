@@ -6,6 +6,9 @@ function love.conf(t)
     -- Disable VSync for Miyoo - use manual frame limiting instead
     -- VSync can cause stuttering on devices with non-standard refresh rates
     t.window.vsync = 0
+    
+    -- Enable depth buffer for occlusion silhouettes
+    t.window.depth = 16
 
     t.window.resizable = true
     t.window.minwidth = 640

@@ -61,7 +61,7 @@ app.use(express.json());
 app.post('/api/create-room', (req: Request, res: Response) => {
   const { isPublic, hostName = 'Host' } = req.body;
   const code = generateRoomCode();
-  
+
   const room: Room = {
     code,
     hostName,
@@ -72,7 +72,7 @@ app.post('/api/create-room', (req: Request, res: Response) => {
     lastHeartbeat: Date.now(),
     gameStarted: false,
   };
-  
+
   rooms.set(code, room);
   res.json({ roomCode: code });
   console.log(`[HTTP] Room ${code} created`);
@@ -80,9 +80,9 @@ app.post('/api/create-room', (req: Request, res: Response) => {
 
 app.get('/api/list-rooms', (_req: Request, res: Response) => {
   const now = Date.now();
-  const publicRooms = Array.from(rooms.values()).filter(r => 
-    r.isPublic && 
-    r.players < r.maxPlayers && 
+  const publicRooms = Array.from(rooms.values()).filter(r =>
+    r.isPublic &&
+    r.players < r.maxPlayers &&
     (now - r.lastHeartbeat) < 60000 // Only show active rooms
     // Game is always running, so we don't filter by gameStarted
   );
@@ -92,11 +92,11 @@ app.get('/api/list-rooms', (_req: Request, res: Response) => {
 app.post('/api/join-room', (req: Request, res: Response) => {
   const { roomCode } = req.body;
   const room = rooms.get(roomCode?.toUpperCase());
-  
+
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (room.players >= room.maxPlayers) return res.status(400).json({ error: 'Room full' });
   // Game is always running, so we don't check gameStarted
-  
+
   res.json({ success: true });
 });
 
@@ -140,12 +140,12 @@ const tcpServer = net.createServer((socket: net.Socket) => {
       if (line.startsWith('JOIN:')) {
         const code = line.split(':')[1].toUpperCase();
         currentRoomCode = code;
-        
+
         const room = rooms.get(code);
-        
+
         // Game is always running, so we don't reject based on gameStarted
         // Players can join at any time during the cycle
-        
+
         let roomData = roomSockets.get(code);
         if (!roomData) {
           // Create new room with game server (always running)
@@ -167,7 +167,7 @@ const tcpServer = net.createServer((socket: net.Socket) => {
 
         // Add player to game server (will scatter spawn automatically)
         roomData.gameServer.addPlayer(playerId);
-        
+
         // Get the actual spawn position from the game server
         const player = roomData.gameServer['state'].players[playerId];
         const spawnX = player ? Math.floor(player.x) : 2500;
@@ -175,7 +175,7 @@ const tcpServer = net.createServer((socket: net.Socket) => {
 
         // Send player their ID and initial state
         socket.write(`join|${playerId}|${spawnX}|${spawnY}\n`);
-        
+
         // Send NPC data (server-authoritative)
         const npcs = roomData.gameServer.getNPCs();
         if (npcs.length > 0) {
@@ -191,7 +191,24 @@ const tcpServer = net.createServer((socket: net.Socket) => {
           }
           socket.write(npcParts.join('|') + '\n');
         }
-        
+
+        // Send Animal data (server-authoritative)
+        const animals = roomData.gameServer.getAnimals();
+        if (animals.length > 0) {
+          const animalParts = ['animals', animals.length.toString()];
+          for (const animal of animals) {
+            animalParts.push(Math.floor(animal.x).toString());
+            animalParts.push(Math.floor(animal.y).toString());
+            animalParts.push(animal.spritePath || '');
+            animalParts.push(animal.name || 'Animal');
+            animalParts.push(animal.speed.toString());
+            animalParts.push(Math.floor(animal.groupCenterX).toString());
+            animalParts.push(Math.floor(animal.groupCenterY).toString());
+            animalParts.push(Math.floor(animal.groupRadius).toString());
+          }
+          socket.write(animalParts.join('|') + '\n');
+        }
+
         const stateJson = roomData.gameServer.getStateSnapshot();
         socket.write(`state|${stateJson}\n`);
 
@@ -214,7 +231,7 @@ const tcpServer = net.createServer((socket: net.Socket) => {
         const roomData = roomSockets.get(currentRoomCode);
         if (roomData) {
           const playerId = roomData.sockets.get(socket);
-          
+
           // Parse message
           const parts = line.split('|');
           const msgType = parts[0];
@@ -225,10 +242,10 @@ const tcpServer = net.createServer((socket: net.Socket) => {
             const y = parseFloat(parts[3]) || 0;
             const direction = parts[4] || 'down';
             const sprinting = parts[6] === '1' || parts[6] === 'true';
-            
+
             // Server updates authoritative position
             roomData.gameServer.updatePlayerPosition(playerId, x, y, direction, sprinting);
-            
+
             // Broadcast to other players
             roomData.sockets.forEach((pid, s) => {
               if (s !== socket) {
@@ -244,13 +261,24 @@ const tcpServer = net.createServer((socket: net.Socket) => {
             // Interact input - server handles it
             roomData.gameServer.handleInteract(playerId);
             // Don't echo back to sender, state will be broadcast
-          } else if (msgType === 'pet_move') {
-            // Pet position - just relay (not authoritative)
             roomData.sockets.forEach((_, s) => {
               if (s !== socket) {
                 s.write(line + '\n');
               }
             });
+          } else if (msgType === 'chunk') {
+            // Chunk request: chunk|cx|cy
+            const cx = parseInt(parts[1]);
+            const cy = parseInt(parts[2]);
+
+            if (!isNaN(cx) && !isNaN(cy)) {
+              const chunkData = roomData.gameServer.getChunkData(cx, cy);
+              if (chunkData) {
+                // Send chunk data back
+                const json = JSON.stringify(chunkData);
+                socket.write(`chunk|${cx}|${cy}|${json}\n`);
+              }
+            }
           } else {
             // Unknown message type - just relay
             roomData.sockets.forEach((_, s) => {
@@ -267,14 +295,14 @@ const tcpServer = net.createServer((socket: net.Socket) => {
   const cleanup = () => {
     if (cleanedUp) return;  // Prevent double cleanup
     cleanedUp = true;
-    
+
     if (currentRoomCode) {
       const roomData = roomSockets.get(currentRoomCode);
       if (roomData) {
         // Remove player from game server
         const playerId = roomData.sockets.get(socket);
         roomData.sockets.delete(socket);  // Remove socket from map
-        
+
         if (playerId) {
           roomData.gameServer.removePlayer(playerId);
         }
@@ -291,7 +319,7 @@ const tcpServer = net.createServer((socket: net.Socket) => {
           // Notify remaining player(s) that opponent left
           roomData.sockets.forEach((_, s) => s.write('OPPONENT_LEFT\n'));
           console.log(`[TCP] Player ${playerId} left room ${currentRoomCode}, ${roomData.sockets.size} players remaining`);
-          
+
           // Update room player count
           if (room) room.players = roomData.sockets.size;
         }
@@ -313,14 +341,14 @@ tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
 // State broadcast loop - send game state to all clients periodically
 setInterval(() => {
   const now = Date.now();
-  
+
   for (const [roomCode, roomData] of roomSockets.entries()) {
     // Check if it's time to broadcast state
     if (now - roomData.lastStateBroadcast >= roomData.stateBroadcastInterval) {
       const stateJson = roomData.gameServer.getStateSnapshot();
       const cycleTime = roomData.gameServer.getCycleTimeRemaining();
       const cycleDuration = roomData.gameServer.getCycleDuration();
-      
+
       // Broadcast state to all players in room
       roomData.sockets.forEach((playerId, socket) => {
         // Send state snapshot
@@ -328,7 +356,7 @@ setInterval(() => {
         // Send cycle time update
         socket.write(`cycle|${cycleTime}|${cycleDuration}\n`);
       });
-      
+
       roomData.lastStateBroadcast = now;
     }
   }

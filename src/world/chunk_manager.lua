@@ -22,8 +22,10 @@ function ChunkManager:new(worldWidth, worldHeight)
     self.activeChunks = {}  -- Set of chunk keys (cx, cy)
     
     -- Load distance (how many chunks around the player to keep loaded)
-    -- Reduced for low-end devices (1 chunk = 3x3 grid = 9 chunks instead of 25)
-    self.loadDistance = 1  -- Load 1 chunk in each direction (3x3 grid = 9 chunks)
+    -- Miyoo: Load only current chunk (1x1 = 1 chunk) to prevent freeze
+    -- Desktop: Load 3x3 grid (9 chunks) for smooth experience
+    local Constants = require('src.constants')
+    self.loadDistance = Constants.MIYOO_DEVICE and 0 or 1
     
     return self
 end
@@ -60,6 +62,12 @@ end
 function ChunkManager:updateActiveChunks(playerX, playerY)
     local centerCx, centerCy = self:worldToChunk(playerX, playerY)
     
+    -- Track which chunks were active before
+    local previouslyActive = {}
+    for key in pairs(self.activeChunks) do
+        previouslyActive[key] = true
+    end
+    
     -- Clear old active chunks
     self.activeChunks = {}
     
@@ -71,10 +79,20 @@ function ChunkManager:updateActiveChunks(playerX, playerY)
             
             -- Check bounds
             if cx >= 0 and cx < self.chunksX and cy >= 0 and cy < self.chunksY then
+                local key = self:getChunkKey(cx, cy)
                 self:setChunkActive(cx, cy, true)
+                previouslyActive[key] = nil  -- Remove from previously active (still active)
             end
         end
     end
+    
+    -- Return list of unloaded chunk keys
+    local unloadedChunks = {}
+    for key in pairs(previouslyActive) do
+        table.insert(unloadedChunks, key)
+    end
+    
+    return unloadedChunks
 end
 
 -- Get all active chunk coordinates

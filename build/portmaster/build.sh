@@ -86,6 +86,7 @@ zip -9 -r "$BUILD_DIR/$GAME_NAME/$GAME_NAME.love" . \
     -x "dist/*" \
     -x "build/*" \
     -x "server/*" \
+    -x "tools/*" \
     -x "*.DS_Store" \
     -x "raw_udp_test.lua" \
     -x "debug/*" \

@@ -67,6 +67,15 @@ function Camera:new(target, worldWidth, worldHeight, viewportWidth, viewportHeig
         self.width, self.height = Camera.calculateViewport(screenWidth, screenHeight)
     end
     
+    -- Store base viewport size for zoom calculations
+    self.baseWidth = self.width
+    self.baseHeight = self.height
+    
+    -- Zoom level (1.0 = normal, 0.5 = zoomed out 2x, 2.0 = zoomed in 2x)
+    self.zoom = 1.0
+    self.minZoom = 0.25  -- Can zoom out to see 4x more area
+    self.maxZoom = 4.0   -- Can zoom in to see 4x less area (more detail)
+    
     -- World bounds for clamping
     self.worldWidth = worldWidth or nil
     self.worldHeight = worldHeight or nil
@@ -93,26 +102,32 @@ end
 function Camera:clampToWorld()
     if not self.worldWidth or not self.worldHeight then return end
     
+    -- Calculate effective viewport size based on zoom
+    local effectiveWidth = self.width
+    local effectiveHeight = self.height
+    
     -- Clamp camera position so it doesn't go beyond world bounds
     -- If world is smaller than viewport, center the camera
-    if self.worldWidth <= self.width then
-        self.smoothX = (self.worldWidth - self.width) / 2
+    if self.worldWidth <= effectiveWidth then
+        self.smoothX = (self.worldWidth - effectiveWidth) / 2
     else
-        self.smoothX = math.max(0, math.min(self.smoothX, self.worldWidth - self.width))
+        self.smoothX = math.max(0, math.min(self.smoothX, self.worldWidth - effectiveWidth))
     end
     
-    if self.worldHeight <= self.height then
-        self.smoothY = (self.worldHeight - self.height) / 2
+    if self.worldHeight <= effectiveHeight then
+        self.smoothY = (self.worldHeight - effectiveHeight) / 2
     else
-        self.smoothY = math.max(0, math.min(self.smoothY, self.worldHeight - self.height))
+        self.smoothY = math.max(0, math.min(self.smoothY, self.worldHeight - effectiveHeight))
     end
 end
 
 -- Update viewport size dynamically (e.g., on window resize)
 function Camera:updateViewport(viewportWidth, viewportHeight)
     if viewportWidth and viewportHeight then
-        self.width = viewportWidth
-        self.height = viewportHeight
+        self.baseWidth = viewportWidth
+        self.baseHeight = viewportHeight
+        self.width = viewportWidth / self.zoom
+        self.height = viewportHeight / self.zoom
         -- Recalculate position to maintain centering on target
         if self.target then
             self.smoothX = self.target.x + 8 - self.width / 2
@@ -187,6 +202,47 @@ end
 -- Convert world coordinates to screen coordinates
 function Camera:worldToScreen(worldX, worldY)
     return worldX - self.x, worldY - self.y
+end
+
+-- Adjust zoom level (for mouse wheel)
+function Camera:adjustZoom(delta)
+    local oldZoom = self.zoom
+    
+    -- Adjust zoom with exponential scaling for smooth feel
+    -- Positive delta = zoom in, negative = zoom out
+    self.zoom = self.zoom * (1 + delta * 0.1)
+    
+    -- Clamp zoom to min/max
+    self.zoom = math.max(self.minZoom, math.min(self.maxZoom, self.zoom))
+    
+    -- Update viewport size based on new zoom
+    -- Higher zoom = smaller viewport = more zoomed in
+    self.width = self.baseWidth / self.zoom
+    self.height = self.baseHeight / self.zoom
+    
+    -- Recenter on target to maintain focus
+    if self.target then
+        self.smoothX = self.target.x + 8 - self.width / 2
+        self.smoothY = self.target.y + 8 - self.height / 2
+        self:clampToWorld()
+        self.x = self.smoothX
+        self.y = self.smoothY
+    end
+end
+
+-- Set zoom level directly
+function Camera:setZoom(zoom)
+    self.zoom = math.max(self.minZoom, math.min(self.maxZoom, zoom))
+    self.width = self.baseWidth / self.zoom
+    self.height = self.baseHeight / self.zoom
+    
+    if self.target then
+        self.smoothX = self.target.x + 8 - self.width / 2
+        self.smoothY = self.target.y + 8 - self.height / 2
+        self:clampToWorld()
+        self.x = self.smoothX
+        self.y = self.smoothY
+    end
 end
 
 return Camera

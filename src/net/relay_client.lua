@@ -246,6 +246,55 @@ function RelayClient:poll()
                             self:updatePingMeasurement(pingMs)
                             self.pendingPing = nil
                         end
+                    elseif line:match("^npcs%|") then
+                        -- Parse NPC data: npcs|count|x|y|spritePath|name|dialogueJSON|...
+                        msg = {type = "npcs", npcs = {}}
+                        local parts = {}
+                        for part in line:gmatch("([^|]+)") do
+                            table.insert(parts, part)
+                        end
+                        local count = tonumber(parts[2]) or 0
+                        local idx = 3
+                        for i = 1, count do
+                            if idx + 4 <= #parts then
+                                local npc = {
+                                    x = tonumber(parts[idx]) or 0,
+                                    y = tonumber(parts[idx + 1]) or 0,
+                                    spritePath = parts[idx + 2],
+                                    name = parts[idx + 3],
+                                    dialogue = json.decode(parts[idx + 4]) or {}
+                                }
+                                table.insert(msg.npcs, npc)
+                                idx = idx + 5
+                            end
+                        end
+                        print("RelayClient: Received " .. count .. " NPCs from server")
+                    elseif line:match("^animals%|") then
+                        -- Parse Animal data: animals|count|x|y|spritePath|name|speed|groupCenterX|groupCenterY|groupRadius|...
+                        msg = {type = "animals", animals = {}}
+                        local parts = {}
+                        for part in line:gmatch("([^|]+)") do
+                            table.insert(parts, part)
+                        end
+                        local count = tonumber(parts[2]) or 0
+                        local idx = 3
+                        for i = 1, count do
+                            if idx + 7 <= #parts then
+                                local animal = {
+                                    x = tonumber(parts[idx]) or 0,
+                                    y = tonumber(parts[idx + 1]) or 0,
+                                    spritePath = parts[idx + 2],
+                                    name = parts[idx + 3],
+                                    speed = tonumber(parts[idx + 4]) or 30,
+                                    groupCenterX = tonumber(parts[idx + 5]) or 0,
+                                    groupCenterY = tonumber(parts[idx + 6]) or 0,
+                                    groupRadius = tonumber(parts[idx + 7]) or 150
+                                }
+                                table.insert(msg.animals, animal)
+                                idx = idx + 8
+                            end
+                        end
+                        print("RelayClient: Received " .. count .. " animals from server")
                     elseif msg.type == Protocol.MSG.INPUT_SHOOT or msg.type == Protocol.MSG.INPUT_INTERACT then
                         -- Ignore our own inputs echoed back
                         print("RelayClient: Ignoring echoed input: " .. (msg.type or "nil"))

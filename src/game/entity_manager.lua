@@ -30,12 +30,18 @@ function EntityManager.updatePlayer(player, dt, world, chunkManager, worldWidth,
 
     EntityManager.clampToBounds(player, worldWidth, worldHeight)
 
-    -- Temporarily disable collision detection to test movement
-    -- if world:checkRockCollision(player.x, player.y, player.width, player.height, chunkManager) then
-    --     print(string.format("Player: Rock collision detected at (%.1f,%.1f), reverting to (%.1f,%.1f)", player.x, player.y, oldX, oldY))
-    --     player.x = oldX
-    --     player.y = oldY
-    -- end
+    -- Collision detection (only check bottom 3 pixels for feet, 4px wide centered)
+    local collisionWidth = 4
+    local collisionHeight = 3
+    local collisionX = player.x + (player.width - collisionWidth) / 2
+    local collisionY = player.y + player.height - collisionHeight
+    if world:checkRockCollision(collisionX, collisionY, collisionWidth, collisionHeight, chunkManager) or 
+       world:checkWaterCollision(collisionX, collisionY, collisionWidth, collisionHeight) or
+       world:checkTreeCollision(collisionX, collisionY, collisionWidth, collisionHeight, chunkManager) then
+        -- print(string.format("Player: Collision detected at (%.1f,%.1f), reverting to (%.1f,%.1f)", player.x, player.y, oldX, oldY))
+        player.x = oldX
+        player.y = oldY
+    end
 end
 
 -- Update pet with collision detection
@@ -46,7 +52,9 @@ function EntityManager.updatePet(pet, dt, world, chunkManager, worldWidth, world
     
     if not pet.isRemote then
         pet.checkCollision = function(x, y, width, height)
-            return world:checkRockCollision(x, y, width, height, chunkManager)
+            return world:checkRockCollision(x, y, width, height, chunkManager) or 
+                   world:checkWaterCollision(x, y, width, height) or
+                   world:checkTreeCollision(x, y, width, height, chunkManager)
         end
         
         pet:update(dt)
@@ -54,13 +62,17 @@ function EntityManager.updatePet(pet, dt, world, chunkManager, worldWidth, world
         if pet.x and pet.y then
             EntityManager.clampToBounds(pet, worldWidth, worldHeight)
             
-            if world:checkRockCollision(pet.x, pet.y, pet.width or 16, pet.height or 16, chunkManager) then
+            if world:checkRockCollision(pet.x, pet.y, pet.width or 16, pet.height or 16, chunkManager) or
+               world:checkWaterCollision(pet.x, pet.y, pet.width or 16, pet.height or 16) or
+               world:checkTreeCollision(pet.x, pet.y, pet.width or 16, pet.height or 16, chunkManager) then
                 local safeFound = false
                 for offset = 1, 8 do
                     for angle = 0, math.pi * 2, math.pi / 4 do
                         local tryX = pet.x + math.cos(angle) * offset
                         local tryY = pet.y + math.sin(angle) * offset
-                        if not world:checkRockCollision(tryX, tryY, pet.width or 16, pet.height or 16, chunkManager) then
+                        if not world:checkRockCollision(tryX, tryY, pet.width or 16, pet.height or 16, chunkManager) and
+                           not world:checkWaterCollision(tryX, tryY, pet.width or 16, pet.height or 16) and
+                           not world:checkTreeCollision(tryX, tryY, pet.width or 16, pet.height or 16, chunkManager) then
                             pet.x = tryX
                             pet.y = tryY
                             safeFound = true
@@ -111,7 +123,9 @@ function EntityManager.updateAnimals(animals, dt, world, chunkManager, worldWidt
     for _, animal in ipairs(animals) do
         if not chunkManager or chunkManager:isPositionActive(animal.x, animal.y) then
             animal:update(dt, function(x, y, width, height)
-                return world:checkRockCollision(x, y, width, height, chunkManager)
+                return world:checkRockCollision(x, y, width, height, chunkManager) or
+                       world:checkWaterCollision(x, y, width, height) or
+                       world:checkTreeCollision(x, y, width, height, chunkManager)
             end)
             EntityManager.clampToBounds(animal, worldWidth, worldHeight)
         end

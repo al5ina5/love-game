@@ -102,6 +102,44 @@ function NetworkAdapter:sendPetPosition(playerId, x, y, monster)
     return true
 end
 
+-- Send raw encoded message (type, ...)
+-- Used by World for requesting chunks, sending roads/rocks etc.
+function NetworkAdapter:send(msgType, ...)
+    local Protocol = require("src.net.protocol")
+    local encoded = Protocol.encode(msgType, ...)
+    
+    if not self:isConnected() then return false end
+    
+    if self.type == NetworkAdapter.TYPE.LAN then
+        if self.server then
+            -- Host (ENet Server)
+            -- Delegate to sendMessage which should handle raw data if implemented, 
+            -- or we need to access server peer. 
+            -- ENet Server generally uses broadcast if no peer specified.
+            if self.server.broadcast then
+                self.server:broadcast(encoded)
+                return true
+            elseif self.server.sendMessage then
+                return self.server:sendMessage({ data = encoded })
+            end
+        elseif self.client then
+            -- ENet Client
+            return self.client:sendMessage({ data = encoded })
+        end
+    else
+        -- Online/Relay
+        if self.client then
+            if self.client.send then
+                -- RelayClient has direct send(data) method
+                return self.client:send(encoded)
+            elseif self.client.sendMessage then
+                return self.client:sendMessage({ data = encoded })
+            end
+        end
+    end
+    return false
+end
+
 -- Send generic message
 function NetworkAdapter:sendMessage(msg)
     if not self:isConnected() then return false end

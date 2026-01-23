@@ -25,6 +25,8 @@ Protocol.MSG = {
     EVENT_PROJECTILE = "proj",  -- Projectile event
     PING = "ping",  -- Ping request
     PONG = "pong",  -- Ping response
+    CHUNK_DATA = "chunk", -- Chunk data from server
+    REQUEST_CHUNK = "chunk", -- Request chunk from client
 }
 
 -- Serialize: type|field1|field2|...
@@ -213,6 +215,19 @@ function Protocol.decode(data)
     elseif msgType == Protocol.MSG.PONG then
         -- Format: pong|timestamp
         msg.timestamp = tonumber(parts[2]) or 0
+
+    elseif msgType == Protocol.MSG.CHUNK_DATA then
+        -- Format: chunk|cx|cy|json_data
+        msg.cx = tonumber(parts[2])
+        msg.cy = tonumber(parts[3])
+        local jsonStr = parts[4]
+        if jsonStr then
+            local json = require("src.lib.dkjson")
+            local success, decoded = pcall(json.decode, jsonStr)
+            if success and decoded then
+                msg.data = decoded
+            end
+        end
     end
     
     return msg

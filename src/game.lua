@@ -8,6 +8,7 @@ local Input = require('src.systems.input')
 local Discovery = require('src.net.discovery')
 local Menu = require('src.ui.menu')
 local Dialogue = require('src.ui.dialogue')
+local Map = require('src.ui.map')
 local ConnectionManager = require('src.game.connection_manager')
 local NetworkHandler = require('src.game.network_handler')
 local NetworkAdapter = require('src.net.network_adapter')
@@ -36,6 +37,7 @@ local Game = {
     camera = nil,
     discovery = nil,
     menu = nil,
+    map = nil,
     connectionManager = nil,
     playerId = nil,
     gameState = nil,
@@ -122,9 +124,14 @@ function Game:load()
     self.world:loadTiles()
     self.world:loadRocks()
     self.world:generateRocks()
+    self.world:loadTrees()
+    self.world:generateTrees(seedValue)
 
     self.npcs = {}
     self.animals = {}
+    
+    -- Initialize map (after world and player are created)
+    self.map = Map:new(self.world, self.player)
     
     self.loadingComplete = false
     self.loadingProgress = 0.3
@@ -153,6 +160,14 @@ function Game:update(dt)
         Input:update()
         Loading.complete(self)
         return
+    end
+    
+    -- Connect to network after loading completes (prevents freeze on Miyoo)
+    if not self.networkConnectionAttempted then
+        self.networkConnectionAttempted = true
+        pcall(function()
+            self:autoJoinOrCreateServer()
+        end)
     end
     
     if self.camera then
@@ -203,7 +218,18 @@ function Game:update(dt)
     Input:update()
     
     if self.player and self.chunkManager and self.player.x and self.player.y then
-        self.chunkManager:updateActiveChunks(self.player.x, self.player.y)
+        local unloadedChunks = self.chunkManager:updateActiveChunks(self.player.x, self.player.y)
+        
+        -- Clean up unloaded chunks
+        if self.world and unloadedChunks then
+            for _, chunkKey in ipairs(unloadedChunks) do
+                self.world:unloadChunk(chunkKey)
+            end
+        end
+    end
+    
+    if self.world and self.player and self.player.x and self.player.y and self.network then
+        self.world:update(dt, self.player.x, self.player.y, self.network)
     end
     
     EntityManager.updateAll(self, dt)
@@ -226,6 +252,13 @@ function Game:update(dt)
     end
     
     self.camera:update(dt)
+    
+    -- Update map if visible
+    if self.map and self.map:isVisible() then
+        self.map:update(dt)
+    end
+    
+    self:logMemoryUsage(dt)
 end
 
 function Game:draw()
@@ -244,6 +277,11 @@ end
 
 function Game:drawUI()
     Renderer.drawUI(self)
+    
+    -- Draw map overlay
+    if self.map then
+        self.map:draw()
+    end
 end
 
 function Game:countRemotePlayers()
@@ -283,6 +321,13 @@ function Game:keypressed(key)
             return
         end
         Interaction.tryInteractWithNPC(self)
+        return
+    end
+    
+    if key == "m" or key == "M" then
+        if self.map then
+            self.map:toggle()
+        end
         return
     end
     
@@ -476,60 +521,28 @@ function Game:autoJoinOrCreateServer()
     end)
 end
 
--- Generate roads connecting points of interest in the world
-function Game:generateWorldRoads()
-    if not self.world then
-        print("WARNING: Cannot generate roads - world not initialized")
-        return
+-- Legacy: Road generation is now server-side and distributed via chunks.
+-- Clients should no longer generate roads locally.
+
+function Game:logMemoryUsage(dt)
+    local Constants = require('src.constants')
+    if not Constants.ENABLE_MEMORY_LOGGING then return end
+
+    self.memLogTimer = (self.memLogTimer or 0) + dt
+    if self.memLogTimer >= 1.0 then
+        self.memLogTimer = 0
+        local count = collectgarbage("count")
+        
+        local npcCount = self.npcs and #self.npcs or 0
+        local animalCount = self.animals and #self.animals or 0
+        local remoteCount = 0
+        if self.remotePlayers then for _ in pairs(self.remotePlayers) do remoteCount = remoteCount + 1 end end
+        local petriCount = 0
+        if self.remotePets then for _ in pairs(self.remotePets) do petriCount = petriCount + 1 end end
+        
+        print(string.format("Mem: %.2f MB | NPC: %d | Animal: %d | Remote: %d | Pets: %d", 
+            count / 1024, npcCount, animalCount, remoteCount, petriCount))
     end
-
-    -- Define key locations where roads should connect
-    local pointsOfInterest = {}
-
-    -- Add player spawn point
-    local spawnX, spawnY
-    if self.player and self.player.x and self.player.y then
-        spawnX, spawnY = self.player.x, self.player.y
-    else
-        -- Fallback spawn point
-        spawnX, spawnY = WORLD_W / 2, WORLD_H / 2
-    end
-
-    table.insert(pointsOfInterest, {
-        x = spawnX,
-        y = spawnY,
-        type = "spawn",
-        priority = 3
-    })
-
-    -- Add points around the player spawn area to create visible roads
-    local roadRadius = 1000  -- Generate roads within 1000 pixels of spawn
-    local numPoints = 8
-
-    for i = 1, numPoints do
-        local angle = (i / numPoints) * 2 * math.pi
-        local distance = roadRadius * (0.3 + math.random() * 0.7)  -- Vary distance
-        local pointX = spawnX + math.cos(angle) * distance
-        local pointY = spawnY + math.sin(angle) * distance
-
-        -- Keep points within world bounds
-        pointX = math.max(100, math.min(WORLD_W - 100, pointX))
-        pointY = math.max(100, math.min(WORLD_H - 100, pointY))
-
-        local priority = (i <= 2) and 3 or 2  -- First 2 points are high priority
-        table.insert(pointsOfInterest, {
-            x = pointX,
-            y = pointY,
-            type = "waypoint",
-            priority = priority
-        })
-    end
-
-    -- Generate road network with a fixed seed for consistent results
-    local seed = 12345
-    self.world:generateRoadNetwork(pointsOfInterest, seed)
-
-    print(string.format("Generated road network with %d points of interest", #pointsOfInterest))
 end
 
 return Game

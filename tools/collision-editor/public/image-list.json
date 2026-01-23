@@ -1,0 +1,434 @@
+[
+  {
+    "name": "Oak_Tree.png",
+    "path": "/project-assets/img/Oak_Tree.png"
+  },
+  {
+    "name": "Oak_Tree_Alien.png",
+    "path": "/project-assets/img/Oak_Tree_Alien.png"
+  },
+  {
+    "name": "Oak_Tree_All_White.png",
+    "path": "/project-assets/img/Oak_Tree_All_White.png"
+  },
+  {
+    "name": "Oak_Tree_Blue.png",
+    "path": "/project-assets/img/Oak_Tree_Blue.png"
+  },
+  {
+    "name": "Oak_Tree_Purple.png",
+    "path": "/project-assets/img/Oak_Tree_Purple.png"
+  },
+  {
+    "name": "Oak_Tree_Red_White.png",
+    "path": "/project-assets/img/Oak_Tree_Red_White.png"
+  },
+  {
+    "name": "Oak_Tree_White.png",
+    "path": "/project-assets/img/Oak_Tree_White.png"
+  },
+  {
+    "name": "objects/rocks.png",
+    "path": "/project-assets/img/objects/rocks.png"
+  },
+  {
+    "name": "sprites/animals/Clucking Chicken/CluckingChicken.gif",
+    "path": "/project-assets/img/sprites/animals/Clucking Chicken/CluckingChicken.gif"
+  },
+  {
+    "name": "sprites/animals/Clucking Chicken/CluckingChicken.png",
+    "path": "/project-assets/img/sprites/animals/Clucking Chicken/CluckingChicken.png"
+  },
+  {
+    "name": "sprites/animals/Coral Crab/CoralCrab.gif",
+    "path": "/project-assets/img/sprites/animals/Coral Crab/CoralCrab.gif"
+  },
+  {
+    "name": "sprites/animals/Coral Crab/CoralCrab.png",
+    "path": "/project-assets/img/sprites/animals/Coral Crab/CoralCrab.png"
+  },
+  {
+    "name": "sprites/animals/Croaking Toad/CroakingToad.gif",
+    "path": "/project-assets/img/sprites/animals/Croaking Toad/CroakingToad.gif"
+  },
+  {
+    "name": "sprites/animals/Croaking Toad/CroakingToad.png",
+    "path": "/project-assets/img/sprites/animals/Croaking Toad/CroakingToad.png"
+  },
+  {
+    "name": "sprites/animals/Dainty Pig/DaintyPig.gif",
+    "path": "/project-assets/img/sprites/animals/Dainty Pig/DaintyPig.gif"
+  },
+  {
+    "name": "sprites/animals/Dainty Pig/DaintyPig.png",
+    "path": "/project-assets/img/sprites/animals/Dainty Pig/DaintyPig.png"
+  },
+  {
+    "name": "sprites/animals/Honking Goose/HonkingGoose.gif",
+    "path": "/project-assets/img/sprites/animals/Honking Goose/HonkingGoose.gif"
+  },
+  {
+    "name": "sprites/animals/Honking Goose/HonkingGoose.png",
+    "path": "/project-assets/img/sprites/animals/Honking Goose/HonkingGoose.png"
+  },
+  {
+    "name": "sprites/animals/Leaping Frog/LeapingFrog.gif",
+    "path": "/project-assets/img/sprites/animals/Leaping Frog/LeapingFrog.gif"
+  },
+  {
+    "name": "sprites/animals/Leaping Frog/LeapingFrog.png",
+    "path": "/project-assets/img/sprites/animals/Leaping Frog/LeapingFrog.png"
+  },
+  {
+    "name": "sprites/animals/Mad Boar/MadBoar.gif",
+    "path": "/project-assets/img/sprites/animals/Mad Boar/MadBoar.gif"
+  },
+  {
+    "name": "sprites/animals/Mad Boar/MadBoar.png",
+    "path": "/project-assets/img/sprites/animals/Mad Boar/MadBoar.png"
+  },
+  {
+    "name": "sprites/animals/Meowing Cat/MeowingCat.gif",
+    "path": "/project-assets/img/sprites/animals/Meowing Cat/MeowingCat.gif"
+  },
+  {
+    "name": "sprites/animals/Meowing Cat/MeowingCat.png",
+    "path": "/project-assets/img/sprites/animals/Meowing Cat/MeowingCat.png"
+  },
+  {
+    "name": "sprites/animals/Pasturing Sheep/PasturingSheep.gif",
+    "path": "/project-assets/img/sprites/animals/Pasturing Sheep/PasturingSheep.gif"
+  },
+  {
+    "name": "sprites/animals/Pasturing Sheep/PasturingSheep.png",
+    "path": "/project-assets/img/sprites/animals/Pasturing Sheep/PasturingSheep.png"
+  },
+  {
+    "name": "sprites/animals/Slow Turtle/SlowTurtle.gif",
+    "path": "/project-assets/img/sprites/animals/Slow Turtle/SlowTurtle.gif"
+  },
+  {
+    "name": "sprites/animals/Slow Turtle/SlowTurtle.png",
+    "path": "/project-assets/img/sprites/animals/Slow Turtle/SlowTurtle.png"
+  },
+  {
+    "name": "sprites/animals/Snow Fox/SnowFox.gif",
+    "path": "/project-assets/img/sprites/animals/Snow Fox/SnowFox.gif"
+  },
+  {
+    "name": "sprites/animals/Snow Fox/SnowFox.png",
+    "path": "/project-assets/img/sprites/animals/Snow Fox/SnowFox.png"
+  },
+  {
+    "name": "sprites/animals/Spikey Porcupine/SpikeyPorcupine.gif",
+    "path": "/project-assets/img/sprites/animals/Spikey Porcupine/SpikeyPorcupine.gif"
+  },
+  {
+    "name": "sprites/animals/Spikey Porcupine/SpikeyPorcupine.png",
+    "path": "/project-assets/img/sprites/animals/Spikey Porcupine/SpikeyPorcupine.png"
+  },
+  {
+    "name": "sprites/animals/Stinky Skunk/StinkySkunk.gif",
+    "path": "/project-assets/img/sprites/animals/Stinky Skunk/StinkySkunk.gif"
+  },
+  {
+    "name": "sprites/animals/Stinky Skunk/StinkySkunk.png",
+    "path": "/project-assets/img/sprites/animals/Stinky Skunk/StinkySkunk.png"
+  },
+  {
+    "name": "sprites/animals/Timber Wolf/TimberWolf.gif",
+    "path": "/project-assets/img/sprites/animals/Timber Wolf/TimberWolf.gif"
+  },
+  {
+    "name": "sprites/animals/Timber Wolf/TimberWolf.png",
+    "path": "/project-assets/img/sprites/animals/Timber Wolf/TimberWolf.png"
+  },
+  {
+    "name": "sprites/animals/Tiny Chick/TinyChick.gif",
+    "path": "/project-assets/img/sprites/animals/Tiny Chick/TinyChick.gif"
+  },
+  {
+    "name": "sprites/animals/Tiny Chick/TinyChick.png",
+    "path": "/project-assets/img/sprites/animals/Tiny Chick/TinyChick.png"
+  },
+  {
+    "name": "sprites/humans/Adventurous Adolescent/AdventurousAdolescent.gif",
+    "path": "/project-assets/img/sprites/humans/Adventurous Adolescent/AdventurousAdolescent.gif"
+  },
+  {
+    "name": "sprites/humans/Adventurous Adolescent/AdventurousAdolescent.png",
+    "path": "/project-assets/img/sprites/humans/Adventurous Adolescent/AdventurousAdolescent.png"
+  },
+  {
+    "name": "sprites/humans/Boisterous Youth/BoisterousYouth.gif",
+    "path": "/project-assets/img/sprites/humans/Boisterous Youth/BoisterousYouth.gif"
+  },
+  {
+    "name": "sprites/humans/Boisterous Youth/BoisterousYouth.png",
+    "path": "/project-assets/img/sprites/humans/Boisterous Youth/BoisterousYouth.png"
+  },
+  {
+    "name": "sprites/humans/Elf Bladedancer/ElfBladedancer.gif",
+    "path": "/project-assets/img/sprites/humans/Elf Bladedancer/ElfBladedancer.gif"
+  },
+  {
+    "name": "sprites/humans/Elf Bladedancer/ElfBladedancer.png",
+    "path": "/project-assets/img/sprites/humans/Elf Bladedancer/ElfBladedancer.png"
+  },
+  {
+    "name": "sprites/humans/Elf Enchanter/ElfEnchanter.gif",
+    "path": "/project-assets/img/sprites/humans/Elf Enchanter/ElfEnchanter.gif"
+  },
+  {
+    "name": "sprites/humans/Elf Enchanter/ElfEnchanter.png",
+    "path": "/project-assets/img/sprites/humans/Elf Enchanter/ElfEnchanter.png"
+  },
+  {
+    "name": "sprites/humans/Elf Lord/ElfLord.gif",
+    "path": "/project-assets/img/sprites/humans/Elf Lord/ElfLord.gif"
+  },
+  {
+    "name": "sprites/humans/Elf Lord/ElfLord.png",
+    "path": "/project-assets/img/sprites/humans/Elf Lord/ElfLord.png"
+  },
+  {
+    "name": "sprites/humans/Elf Sharpshooter/ElfSharpshooter.gif",
+    "path": "/project-assets/img/sprites/humans/Elf Sharpshooter/ElfSharpshooter.gif"
+  },
+  {
+    "name": "sprites/humans/Elf Sharpshooter/ElfSharpshooter.png",
+    "path": "/project-assets/img/sprites/humans/Elf Sharpshooter/ElfSharpshooter.png"
+  },
+  {
+    "name": "sprites/humans/Elf Wayfarer/ElfWayfarer.gif",
+    "path": "/project-assets/img/sprites/humans/Elf Wayfarer/ElfWayfarer.gif"
+  },
+  {
+    "name": "sprites/humans/Elf Wayfarer/ElfWayfarer.png",
+    "path": "/project-assets/img/sprites/humans/Elf Wayfarer/ElfWayfarer.png"
+  },
+  {
+    "name": "sprites/humans/Joyful Kid/JoyfulKid.gif",
+    "path": "/project-assets/img/sprites/humans/Joyful Kid/JoyfulKid.gif"
+  },
+  {
+    "name": "sprites/humans/Joyful Kid/JoyfulKid.png",
+    "path": "/project-assets/img/sprites/humans/Joyful Kid/JoyfulKid.png"
+  },
+  {
+    "name": "sprites/humans/Merfolk Aquamancer/MerfolkAquamancer.gif",
+    "path": "/project-assets/img/sprites/humans/Merfolk Aquamancer/MerfolkAquamancer.gif"
+  },
+  {
+    "name": "sprites/humans/Merfolk Aquamancer/MerfolkAquamancer.png",
+    "path": "/project-assets/img/sprites/humans/Merfolk Aquamancer/MerfolkAquamancer.png"
+  },
+  {
+    "name": "sprites/humans/Merfolk Impaler/MerfolkImpaler.gif",
+    "path": "/project-assets/img/sprites/humans/Merfolk Impaler/MerfolkImpaler.gif"
+  },
+  {
+    "name": "sprites/humans/Merfolk Impaler/MerfolkImpaler.png",
+    "path": "/project-assets/img/sprites/humans/Merfolk Impaler/MerfolkImpaler.png"
+  },
+  {
+    "name": "sprites/humans/Merfolk Javelineer/MerfolkJavelineer.gif",
+    "path": "/project-assets/img/sprites/humans/Merfolk Javelineer/MerfolkJavelineer.gif"
+  },
+  {
+    "name": "sprites/humans/Merfolk Javelineer/MerfolkJavelineer.png",
+    "path": "/project-assets/img/sprites/humans/Merfolk Javelineer/MerfolkJavelineer.png"
+  },
+  {
+    "name": "sprites/humans/Merfolk Mystic/MerfolkMystic.gif",
+    "path": "/project-assets/img/sprites/humans/Merfolk Mystic/MerfolkMystic.gif"
+  },
+  {
+    "name": "sprites/humans/Merfolk Mystic/MerfolkMystic.png",
+    "path": "/project-assets/img/sprites/humans/Merfolk Mystic/MerfolkMystic.png"
+  },
+  {
+    "name": "sprites/humans/Merfolk Scout/MerfolkScout.gif",
+    "path": "/project-assets/img/sprites/humans/Merfolk Scout/MerfolkScout.gif"
+  },
+  {
+    "name": "sprites/humans/Merfolk Scout/MerfolkScout.png",
+    "path": "/project-assets/img/sprites/humans/Merfolk Scout/MerfolkScout.png"
+  },
+  {
+    "name": "sprites/humans/Overworked Villager/OverworkedVillager.gif",
+    "path": "/project-assets/img/sprites/humans/Overworked Villager/OverworkedVillager.gif"
+  },
+  {
+    "name": "sprites/humans/Overworked Villager/OverworkedVillager.png",
+    "path": "/project-assets/img/sprites/humans/Overworked Villager/OverworkedVillager.png"
+  },
+  {
+    "name": "sprites/humans/Playful Child/PlayfulChild.gif",
+    "path": "/project-assets/img/sprites/humans/Playful Child/PlayfulChild.gif"
+  },
+  {
+    "name": "sprites/humans/Playful Child/PlayfulChild.png",
+    "path": "/project-assets/img/sprites/humans/Playful Child/PlayfulChild.png"
+  },
+  {
+    "name": "sprites/monsters/Blinded Grimlock/BlindedGrimlock.gif",
+    "path": "/project-assets/img/sprites/monsters/Blinded Grimlock/BlindedGrimlock.gif"
+  },
+  {
+    "name": "sprites/monsters/Blinded Grimlock/BlindedGrimlock.png",
+    "path": "/project-assets/img/sprites/monsters/Blinded Grimlock/BlindedGrimlock.png"
+  },
+  {
+    "name": "sprites/monsters/Bloodshot Eye/BloodshotEye.gif",
+    "path": "/project-assets/img/sprites/monsters/Bloodshot Eye/BloodshotEye.gif"
+  },
+  {
+    "name": "sprites/monsters/Bloodshot Eye/BloodshotEye.png",
+    "path": "/project-assets/img/sprites/monsters/Bloodshot Eye/BloodshotEye.png"
+  },
+  {
+    "name": "sprites/monsters/Brawny Ogre/BrawnyOgre.gif",
+    "path": "/project-assets/img/sprites/monsters/Brawny Ogre/BrawnyOgre.gif"
+  },
+  {
+    "name": "sprites/monsters/Brawny Ogre/BrawnyOgre.png",
+    "path": "/project-assets/img/sprites/monsters/Brawny Ogre/BrawnyOgre.png"
+  },
+  {
+    "name": "sprites/monsters/Crimson Slaad/CrimsonSlaad.gif",
+    "path": "/project-assets/img/sprites/monsters/Crimson Slaad/CrimsonSlaad.gif"
+  },
+  {
+    "name": "sprites/monsters/Crimson Slaad/CrimsonSlaad.png",
+    "path": "/project-assets/img/sprites/monsters/Crimson Slaad/CrimsonSlaad.png"
+  },
+  {
+    "name": "sprites/monsters/Crushing Cyclops/CrushingCyclops.gif",
+    "path": "/project-assets/img/sprites/monsters/Crushing Cyclops/CrushingCyclops.gif"
+  },
+  {
+    "name": "sprites/monsters/Crushing Cyclops/CrushingCyclops.png",
+    "path": "/project-assets/img/sprites/monsters/Crushing Cyclops/CrushingCyclops.png"
+  },
+  {
+    "name": "sprites/monsters/Death Slime/DeathSlime.gif",
+    "path": "/project-assets/img/sprites/monsters/Death Slime/DeathSlime.gif"
+  },
+  {
+    "name": "sprites/monsters/Death Slime/DeathSlime.png",
+    "path": "/project-assets/img/sprites/monsters/Death Slime/DeathSlime.png"
+  },
+  {
+    "name": "sprites/monsters/Fungal Myconid/FungalMyconid.gif",
+    "path": "/project-assets/img/sprites/monsters/Fungal Myconid/FungalMyconid.gif"
+  },
+  {
+    "name": "sprites/monsters/Fungal Myconid/FungalMyconid.png",
+    "path": "/project-assets/img/sprites/monsters/Fungal Myconid/FungalMyconid.png"
+  },
+  {
+    "name": "sprites/monsters/Humongous Ettin/HumongousEttin.gif",
+    "path": "/project-assets/img/sprites/monsters/Humongous Ettin/HumongousEttin.gif"
+  },
+  {
+    "name": "sprites/monsters/Humongous Ettin/HumongousEttin.png",
+    "path": "/project-assets/img/sprites/monsters/Humongous Ettin/HumongousEttin.png"
+  },
+  {
+    "name": "sprites/monsters/Murky Slaad/MurkySlaad.gif",
+    "path": "/project-assets/img/sprites/monsters/Murky Slaad/MurkySlaad.gif"
+  },
+  {
+    "name": "sprites/monsters/Murky Slaad/MurkySlaad.png",
+    "path": "/project-assets/img/sprites/monsters/Murky Slaad/MurkySlaad.png"
+  },
+  {
+    "name": "sprites/monsters/Ochre Jelly/OchreJelly.gif",
+    "path": "/project-assets/img/sprites/monsters/Ochre Jelly/OchreJelly.gif"
+  },
+  {
+    "name": "sprites/monsters/Ochre Jelly/OchreJelly.png",
+    "path": "/project-assets/img/sprites/monsters/Ochre Jelly/OchreJelly.png"
+  },
+  {
+    "name": "sprites/monsters/Ocular Watcher/OcularWatcher.gif",
+    "path": "/project-assets/img/sprites/monsters/Ocular Watcher/OcularWatcher.gif"
+  },
+  {
+    "name": "sprites/monsters/Ocular Watcher/OcularWatcher.png",
+    "path": "/project-assets/img/sprites/monsters/Ocular Watcher/OcularWatcher.png"
+  },
+  {
+    "name": "sprites/monsters/Red Cap/RedCap.gif",
+    "path": "/project-assets/img/sprites/monsters/Red Cap/RedCap.gif"
+  },
+  {
+    "name": "sprites/monsters/Red Cap/RedCap.png",
+    "path": "/project-assets/img/sprites/monsters/Red Cap/RedCap.png"
+  },
+  {
+    "name": "sprites/monsters/Shrieker Mushroom/ShriekerMushroom.gif",
+    "path": "/project-assets/img/sprites/monsters/Shrieker Mushroom/ShriekerMushroom.gif"
+  },
+  {
+    "name": "sprites/monsters/Shrieker Mushroom/ShriekerMushroom.png",
+    "path": "/project-assets/img/sprites/monsters/Shrieker Mushroom/ShriekerMushroom.png"
+  },
+  {
+    "name": "sprites/monsters/Stone Troll/StoneTroll.gif",
+    "path": "/project-assets/img/sprites/monsters/Stone Troll/StoneTroll.gif"
+  },
+  {
+    "name": "sprites/monsters/Stone Troll/StoneTroll.png",
+    "path": "/project-assets/img/sprites/monsters/Stone Troll/StoneTroll.png"
+  },
+  {
+    "name": "sprites/monsters/Swamp Troll/SwampTroll.gif",
+    "path": "/project-assets/img/sprites/monsters/Swamp Troll/SwampTroll.gif"
+  },
+  {
+    "name": "sprites/monsters/Swamp Troll/SwampTroll.png",
+    "path": "/project-assets/img/sprites/monsters/Swamp Troll/SwampTroll.png"
+  },
+  {
+    "name": "tileset/narnia/Beach_Tile.png",
+    "path": "/project-assets/img/tileset/narnia/Beach_Tile.png"
+  },
+  {
+    "name": "tileset/narnia/Cliff_Tile.png",
+    "path": "/project-assets/img/tileset/narnia/Cliff_Tile.png"
+  },
+  {
+    "name": "tileset/narnia/FarmLand_Tile.png",
+    "path": "/project-assets/img/tileset/narnia/FarmLand_Tile.png"
+  },
+  {
+    "name": "tileset/narnia/Grass_Middle.png",
+    "path": "/project-assets/img/tileset/narnia/Grass_Middle.png"
+  },
+  {
+    "name": "tileset/narnia/Outdoor_Decor_Free.png",
+    "path": "/project-assets/img/tileset/narnia/Outdoor_Decor_Free.png"
+  },
+  {
+    "name": "tileset/narnia/Path_Middle.png",
+    "path": "/project-assets/img/tileset/narnia/Path_Middle.png"
+  },
+  {
+    "name": "tileset/narnia/Path_Tile.png",
+    "path": "/project-assets/img/tileset/narnia/Path_Tile.png"
+  },
+  {
+    "name": "tileset/narnia/Water_Middle.png",
+    "path": "/project-assets/img/tileset/narnia/Water_Middle.png"
+  },
+  {
+    "name": "tileset/narnia/Water_Tile.png",
+    "path": "/project-assets/img/tileset/narnia/Water_Tile.png"
+  },
+  {
+    "name": "tileset/tileset-v1.png",
+    "path": "/project-assets/img/tileset/tileset-v1.png"
+  }
+]

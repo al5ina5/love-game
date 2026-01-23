@@ -78,7 +78,7 @@ echo "Creating $GAME_NAME.love..."
 # Excluding build files and hidden git/system files
 # Note: .env is NOT excluded so it will be included in the package
 zip -9 -r "$BUILD_DIR/$GAME_NAME/$GAME_NAME.love" . \
-    -x "*.git*" -x "dist/*" -x "server/*" -x "build_portmaster.sh" -x "*.DS_Store" -x "raw_udp_test.lua" -x "debug/*"
+     -x "*.git*" -x "dist/*" -x "server/*" -x "tools/*" -x "build_portmaster.sh" -x "*.DS_Store" -x "raw_udp_test.lua" -x "debug/*"
 
 # 5. Create the Launcher (.sh)
 echo "Creating $GAME_NAME.sh..."

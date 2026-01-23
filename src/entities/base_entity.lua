@@ -36,18 +36,21 @@ function BaseEntity:new()
 end
 
 function BaseEntity:loadSprite(spritePath)
-    self.spriteSheet = love.graphics.newImage(spritePath)
+    local ResourceManager = require('src.game.resource_manager')
+    self.spriteSheet = ResourceManager.getImage(spritePath)
     self.frameWidth = 16
     self.frameHeight = 16
     
     -- Create quads for each frame
     self.quads = {}
-    for i = 0, self.frameCount - 1 do
-        self.quads[i + 1] = love.graphics.newQuad(
-            i * self.frameWidth, 0,
-            self.frameWidth, self.frameHeight,
-            self.spriteSheet:getDimensions()
-        )
+    if self.spriteSheet then
+        for i = 0, self.frameCount - 1 do
+            self.quads[i + 1] = love.graphics.newQuad(
+                i * self.frameWidth, 0,
+                self.frameWidth, self.frameHeight,
+                self.spriteSheet:getDimensions()
+            )
+        end
     end
 end
 

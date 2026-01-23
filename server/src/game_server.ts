@@ -48,17 +48,36 @@ interface NPC {
   dialogue: string[];
 }
 
+interface Animal {
+  id: string;
+  x: number;
+  y: number;
+  spritePath: string;
+  name: string;
+  speed: number;
+  state: string;
+  direction: string;
+  groupCenterX: number;
+  groupCenterY: number;
+  groupRadius: number;
+}
+
 interface GameState {
   players: { [playerId: string]: Player };
   projectiles: { [projId: string]: Projectile };
   chests: { [chestId: string]: Chest };
   npcs: { [npcId: string]: NPC };
+  animals: { [animalId: string]: Animal };
   cycleStartTime: number;
   cycleDuration: number; // 20 minutes in milliseconds
   cycleTimeRemaining: number; // milliseconds
   extractionZones: Array<{ x: number; y: number; radius: number }>;
   deadlyEventActive: boolean;
 }
+
+import { ChunkManager, ChunkData } from './world/ChunkManager';
+import { WorldGenerator } from './world/WorldGenerator';
+import { AnimalManager } from './world/AnimalManager';
 
 export class GameServer {
   private state: GameState;
@@ -75,12 +94,16 @@ export class GameServer {
   private readonly PROJECTILE_DAMAGE = 10;
   private readonly PROJECTILE_LIFETIME = 3.0; // seconds
 
+  private chunkManager: ChunkManager;
+  private animalManager: AnimalManager | null = null;
+
   constructor() {
     this.state = {
       players: {},
       projectiles: {},
       chests: {},
       npcs: {},
+      animals: {},
       cycleStartTime: Date.now(),
       cycleDuration: this.CYCLE_DURATION,
       cycleTimeRemaining: this.CYCLE_DURATION,
@@ -93,6 +116,33 @@ export class GameServer {
       deadlyEventActive: false,
     };
 
+    // Initialize World Generation
+    this.chunkManager = new ChunkManager(this.worldWidth, this.worldHeight);
+    const worldGen = new WorldGenerator(this.chunkManager, 12345); // Fixed seed for now
+    worldGen.generate();
+
+    // Create Animals (server-authoritative) - must be after world generation to access waterMap
+    this.animalManager = worldGen.getAnimalManager();
+    if (this.animalManager) {
+      const animals = this.animalManager.getAnimals();
+      for (const animalId in animals) {
+        const animal = animals[animalId];
+        this.state.animals[animalId] = {
+          id: animal.id,
+          x: animal.x,
+          y: animal.y,
+          spritePath: animal.spritePath,
+          name: animal.name,
+          speed: animal.speed,
+          state: animal.state,
+          direction: animal.direction,
+          groupCenterX: animal.groupCenterX,
+          groupCenterY: animal.groupCenterY,
+          groupRadius: animal.groupRadius,
+        };
+      }
+    }
+
     // Spawn initial chests
     this.spawnInitialChests(10);
 
@@ -101,6 +151,10 @@ export class GameServer {
 
     // Start game loop
     this.startGameLoop();
+  }
+
+  public getChunkData(cx: number, cy: number): ChunkData | null {
+    return this.chunkManager.getChunk(cx, cy);
   }
 
   private startGameLoop(): void {
@@ -124,6 +178,22 @@ export class GameServer {
     // Check if cycle ended (deadly event)
     if (this.state.cycleTimeRemaining <= 0 && !this.state.deadlyEventActive) {
       this.triggerDeadlyEvent();
+    }
+
+    // Update animals
+    if (this.animalManager) {
+      this.animalManager.update(dt);
+      // Sync animal state from manager to game state
+      const animals = this.animalManager.getAnimals();
+      for (const animalId in animals) {
+        const animal = animals[animalId];
+        if (this.state.animals[animalId]) {
+          this.state.animals[animalId].x = animal.x;
+          this.state.animals[animalId].y = animal.y;
+          this.state.animals[animalId].state = animal.state;
+          this.state.animals[animalId].direction = animal.direction;
+        }
+      }
     }
 
     // Update projectiles
@@ -607,12 +677,17 @@ export class GameServer {
     return Object.values(this.state.npcs);
   }
 
+  getAnimals(): Animal[] {
+    return Object.values(this.state.animals);
+  }
+
   getStateSnapshot(): string {
     return JSON.stringify({
       players: this.state.players,
       projectiles: this.state.projectiles,
       chests: this.state.chests,
       npcs: this.state.npcs,
+      animals: this.state.animals,
       cycleTimeRemaining: this.state.cycleTimeRemaining,
       cycleDuration: this.state.cycleDuration,
       deadlyEventActive: this.state.deadlyEventActive,

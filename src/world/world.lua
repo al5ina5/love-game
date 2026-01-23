@@ -4,6 +4,8 @@
 local Protocol = require('src.net.protocol')
 local NetworkAdapter = require('src.net.network_adapter')
 local RoadGenerator = require('src.world.road_generator')
+local WaterGenerator = require('src.world.water_generator')
+local Constants = require('src.constants')
 
 local World = {}
 World.__index = World
@@ -47,9 +49,32 @@ function World:new(worldWidth, worldHeight)
 
     -- Roads - simple sparse map: [chunkKey][localTileX][localTileY] = tileID
     self.roads = {}
+    -- Water - sparse map
+    self.water = {}
 
     -- Road generator
     self.roadGenerator = RoadGenerator:new(self)
+    -- Water generator
+    self.waterGenerator = WaterGenerator:new(self)
+
+    -- Chunk Management
+    self.loadedChunks = {} -- Track which chunks are loaded [cx,cy] = true
+    self.loadingChunks = {} 
+    self.lastChunkUpdate = 0
+
+    -- SpriteBatches for performance
+    self.grassBatch = nil
+    self.spriteBatchDirty = true
+    
+    -- Grass batch optimization - track last rendered area
+    self.lastGrassStartX = nil
+    self.lastGrassStartY = nil
+    self.lastGrassEndX = nil
+    self.lastGrassEndY = nil
+    
+    -- Road/Water SpriteBatches per chunk
+    self.roadBatches = {}  -- [chunkKey] = SpriteBatch
+    self.waterBatches = {} -- [chunkKey] = SpriteBatch
 
     return self
 end
@@ -65,6 +90,19 @@ function World:loadTiles()
         -- Load Grass Background
         self.grassImage = love.graphics.newImage("assets/img/tileset/narnia/Grass_Middle.png")
         self.grassImage:setFilter("nearest", "nearest")
+
+        -- Load Water Tiles
+        self.waterTileset = love.graphics.newImage("assets/img/tileset/narnia/Water_Tile.png")
+        self.waterTileset:setFilter("nearest", "nearest")
+        
+        -- Load Water Middle
+        self.waterMiddle = love.graphics.newImage("assets/img/tileset/narnia/Water_Middle.png")
+        self.waterMiddle:setFilter("nearest", "nearest")
+
+        -- Initialize Grass SpriteBatch (large enough for viewport + margin)
+        -- Normal viewport is 320x180 = 20x12 tiles. With margin, maybe 40x30 = 1200 tiles.
+        -- We'll just make it 5000 to be safe for any resize.
+        self.grassBatch = love.graphics.newSpriteBatch(self.grassImage, 5000)
     end)
     
     if not success then
@@ -87,7 +125,7 @@ function World:loadTiles()
     local tilesPerRow = math.floor(tilesetWidth / tileWidth)
     local tilesPerCol = math.floor(tilesetHeight / tileHeight)
     
-    -- Create quads for each tile
+    -- Create quads for each tile (Path)
     self.tilesetQuads = {}
     if tilesPerRow == 1 or tilesetWidth <= 20 then
         -- Single column layout
@@ -110,6 +148,21 @@ function World:loadTiles()
                     tilesetWidth, tilesetHeight
                 )
                 tileIndex = tileIndex + 1
+            end
+        end
+    end
+
+    -- Generate Water Quads
+    self.waterQuads = {}
+    if self.waterTileset then
+        local w, h = self.waterTileset:getDimensions()
+        local cols = math.floor(w / 16)
+        local rows = math.floor(h / 16)
+        local idx = 1
+        for r = 0, rows - 1 do
+            for c = 0, cols - 1 do
+                 self.waterQuads[idx] = love.graphics.newQuad(c*16, r*16, 16, 16, w, h)
+                 idx = idx + 1
             end
         end
     end
@@ -146,8 +199,9 @@ function World:getRoadQuad(tileID)
 end
 
 -- Road generation functions (delegated to RoadGenerator)
+-- Road generation is now handled server-side via ChunkManager.ts
 function World:generateRoadNetwork(pointsOfInterest, seed)
-    self.roadGenerator:generateRoadNetwork(pointsOfInterest, seed)
+    -- This is now managed by the server and synchronized via chunks
 end
 
 function World:sendRoadsToClients(network, isHost)
@@ -207,23 +261,161 @@ function World:sendRocksToClients(network, isHost)
     network:send(Protocol.MSG.ROCKS_DATA, { rocks = self.rocks })
 end
 
-function World:loadRoadsFromData(encodedData)
-    self.roads = {}
-
-    if not encodedData or #encodedData == 0 then
-        return
-    end
-
-    -- encodedData is an array of [tileX, tileY, tileID, tileX, tileY, tileID, ...]
-    for i = 1, #encodedData, 3 do
-        local tileX = encodedData[i]
-        local tileY = encodedData[i + 1]
-        local tileID = encodedData[i + 2]
-
-        if tileX and tileY and tileID then
-            self.roadGenerator:setRoadTile(tileX, tileY, tileID)
+function World:update(dt, playerX, playerY, network)
+    if not playerX or not playerY or not network then return end
+    
+    self.lastChunkUpdate = self.lastChunkUpdate + dt
+    if self.lastChunkUpdate < 0.5 then return end -- Check every 0.5s
+    self.lastChunkUpdate = 0
+    
+    local cx = math.floor(playerX / self.chunkSize)
+    local cy = math.floor(playerY / self.chunkSize)
+    
+    -- Request 3x3 chunks around player
+    for dy = -1, 1 do
+        for dx = -1, 1 do
+            local tx = cx + dx
+            local ty = cy + dy
+            local key = tx .. "," .. ty
+            
+            if not self.loadedChunks[key] and not self.loadingChunks[key] then
+                -- Request chunk
+                if network.send then
+                    network:send(Protocol.MSG.REQUEST_CHUNK, tx, ty)
+                    self.loadingChunks[key] = true
+                    -- print("Requesting chunk " .. key)
+                else
+                    print("ERROR: network.send is missing! Network object: " .. tostring(network))
+                    -- Print keys of network object to see what it is
+                    for k,v in pairs(network) do print("  " .. k .. ": " .. tostring(v)) end
+                end
+            end
         end
     end
+end
+
+function World:loadChunkData(chunkX, chunkY, data)
+    local chunkKey = chunkX .. "," .. chunkY
+    if self.loadedChunks[chunkKey] then return end -- Already loaded
+    
+    local startTime = love.timer.getTime()
+    -- print("World: Loading chunk data for " .. chunkKey)
+    
+    -- data contains { roads={}, water={}, rocks={}, trees={} }
+    
+    -- 1. Load Roads
+    if data.roads then
+        for key, tileID in pairs(data.roads) do
+            local lx, ly = key:match("([^,]+),([^,]+)")
+            lx, ly = tonumber(lx), tonumber(ly)
+            -- Map to correct chunk storage
+            if not self.roads[chunkKey] then self.roads[chunkKey] = {} end
+            if not self.roads[chunkKey][lx] then self.roads[chunkKey][lx] = {} end
+            self.roads[chunkKey][lx][ly] = tileID
+        end
+    end
+
+    -- 2. Load Water
+    if data.water then
+        for key, tileID in pairs(data.water) do
+            local lx, ly = key:match("([^,]+),([^,]+)")
+            lx, ly = tonumber(lx), tonumber(ly)
+            if not self.water[chunkKey] then self.water[chunkKey] = {} end
+            if not self.water[chunkKey][lx] then self.water[chunkKey][lx] = {} end
+            self.water[chunkKey][lx][ly] = tileID
+        end
+    end
+
+    -- 3. Load Rocks
+    if data.rocks then
+        for _, rock in ipairs(data.rocks) do
+            table.insert(self.rocks, rock)
+        end
+    end
+
+    -- 4. Load Trees
+    if data.trees then
+        for _, tree in ipairs(data.trees) do
+            table.insert(self.trees, tree)
+        end
+    end
+
+    self.loadedChunks[chunkKey] = true
+    self.loadingChunks[chunkKey] = nil -- Clear loading flag
+    self.spriteBatchDirty = true -- Trigger redraw of floor
+
+    local duration = (love.timer.getTime() - startTime) * 1000
+    -- print(string.format("World: Loaded chunk %s in %.2fms", chunkKey, duration))
+end
+
+-- Unload a chunk and clean up its resources
+function World:unloadChunk(chunkKey)
+    if not self.loadedChunks[chunkKey] then
+        return -- Not loaded
+    end
+    
+    -- Remove roads for this chunk
+    if self.roads[chunkKey] then
+        self.roads[chunkKey] = nil
+    end
+    
+    -- Remove water for this chunk
+    if self.water[chunkKey] then
+        self.water[chunkKey] = nil
+    end
+    
+    -- Remove road/water batches if they exist
+    if self.roadBatches and self.roadBatches[chunkKey] then
+        self.roadBatches[chunkKey]:release()
+        self.roadBatches[chunkKey] = nil
+    end
+    
+    if self.waterBatches and self.waterBatches[chunkKey] then
+        self.waterBatches[chunkKey]:release()
+        self.waterBatches[chunkKey] = nil
+    end
+    
+    -- Remove trees and rocks for this chunk
+    -- Note: trees and rocks are stored as flat arrays, so we need to filter them
+    local chunkX, chunkY = chunkKey:match("([^,]+),([^,]+)")
+    chunkX, chunkY = tonumber(chunkX), tonumber(chunkY)
+    local minX = chunkX * self.chunkSize
+    local minY = chunkY * self.chunkSize
+    local maxX = (chunkX + 1) * self.chunkSize
+    local maxY = (chunkY + 1) * self.chunkSize
+    
+    -- Filter trees
+    if self.trees then
+        local newTrees = {}
+        for _, tree in ipairs(self.trees) do
+            if tree.x < minX or tree.x >= maxX or tree.y < minY or tree.y >= maxY then
+                table.insert(newTrees, tree)
+            end
+        end
+        self.trees = newTrees
+    end
+    
+    -- Filter rocks
+    if self.rocks then
+        local newRocks = {}
+        for _, rock in ipairs(self.rocks) do
+            if rock.x < minX or rock.x >= maxX or rock.y < minY or rock.y >= maxY then
+                table.insert(newRocks, rock)
+            end
+        end
+        self.rocks = newRocks
+    end
+    
+    self.loadedChunks[chunkKey] = nil
+    self.spriteBatchDirty = true
+    
+    -- print("World: Unloaded chunk " .. chunkKey)
+end
+
+
+
+function World:loadRoadsFromData(encodedData)
+    -- Deprecated / Legacy support if needed, but we rely on chunk loading now.
 end
 
 function World:isOnRoad(x, y)
@@ -324,66 +516,114 @@ function World:loadRocks()
 end
 
 function World:generateRocks()
-    if not self.rocksQuads or #self.rocksQuads == 0 then
-        print("ERROR: No rock quads available! Cannot generate rocks.")
-        return
-    end
-    
-    -- Generate rocks deterministically across the huge world
-    local savedSeed = math.random()
-    math.randomseed(12345)
-    
+    -- Local rock generation disabled
     self.rocks = {}
-    -- Even lower rock density for low-end devices - roughly 1 rock per 100,000 pixels
-    -- This gives us ~4,000 rocks for a 20,000x20,000 world (reduced from 8,000)
-    local numRocks = math.floor((self.worldWidth * self.worldHeight) / 100000)
-    -- Cap at reasonable maximum for low-end devices
-    numRocks = math.min(numRocks, 5000)
-    -- Generating rocks (optimized for low-end devices)
-    local rockTypes = {3, 4}
+end
     
-    for i = 1, numRocks do
-        local x = math.random(0, self.worldWidth - TILE_SIZE)
-        local y = math.random(0, self.worldHeight - TILE_SIZE)
-        x = math.floor(math.floor(x / TILE_SIZE) * TILE_SIZE)
-        y = math.floor(math.floor(y / TILE_SIZE) * TILE_SIZE)
-        local tileId = rockTypes[math.random(1, #rockTypes)]
+
+
+function World:loadTrees()
+    self.treeImages = {}
+    local variations = {
+        standard = "assets/img/Oak_Tree.png",
+        purple = "assets/img/Oak_Tree_Purple.png",
+        blue = "assets/img/Oak_Tree_Blue.png",
+        alien = "assets/img/Oak_Tree_Alien.png",
+        white = "assets/img/Oak_Tree_White.png",
+        red_white = "assets/img/Oak_Tree_Red_White.png",
+        all_white = "assets/img/Oak_Tree_All_White.png"
+    }
+    
+    for name, path in pairs(variations) do
+        local success, err = pcall(function()
+            local img = love.graphics.newImage(path)
+            img:setFilter("nearest", "nearest")
+            self.treeImages[name] = img
+        end)
         
-        table.insert(self.rocks, {
-            x = x,
-            y = y,
-            tileId = tileId,
-            actualTileNum = self.validTileToActual[tileId] or 1
-        })
+        if not success then
+            print("ERROR: Failed to load tree: " .. path)
+            -- Use first available if possible or leave nil
+        end
     end
     
-    math.randomseed(savedSeed)
+    -- Backward compatibility / fallback
+    self.treeImage = self.treeImages.standard
 end
 
-function World:drawFloor(camera)
-    if not self.tilesetImage or not self.tileQuads then
-        -- Draw fallback green rectangles
-        love.graphics.setColor(0.2, 0.6, 0.2, 1)
-        local cameraX = math.floor(camera.x + 0.5)
-        local cameraY = math.floor(camera.y + 0.5)
-        local margin = 3
-        local startX = math.floor((cameraX - margin * TILE_SIZE) / TILE_SIZE)
-        local startY = math.floor((cameraY - margin * TILE_SIZE) / TILE_SIZE)
-        local endX = math.ceil((cameraX + camera.width + margin * TILE_SIZE) / TILE_SIZE)
-        local endY = math.ceil((cameraY + camera.height + margin * TILE_SIZE) / TILE_SIZE)
-        startX = math.max(0, startX)
-        startY = math.max(0, startY)
-        endX = math.min(math.ceil(self.worldWidth / TILE_SIZE) - 1, endX)
-        endY = math.min(math.ceil(self.worldHeight / TILE_SIZE) - 1, endY)
-        for ty = startY, endY do
-            for tx = startX, endX do
-                love.graphics.rectangle("fill", tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+function World:generateTrees(seed)
+    -- Local tree generation disabled
+    self.trees = {}
+end
+
+
+
+function World:checkTreeCollision(x, y, width, height, chunkManager)
+    if not self.trees then return false end
+
+    local entityLeft = x
+    local entityRight = x + width
+    local entityTop = y
+    local entityBottom = y + height
+
+    for _, tree in ipairs(self.trees) do
+        -- Trunk collision box from editor: 
+        -- P1(27,57), P2(37,58), P3(40,62), P4(33,65), P5(24,63)
+        -- Bounding box: X[24, 40], Y[57, 65]
+        local trunkWidth = 16
+        local trunkHeight = 8
+        local trunkX = tree.x + 24
+        local trunkY = tree.y + 57
+
+        if entityLeft < trunkX + trunkWidth and entityRight > trunkX and
+           entityTop < trunkY + trunkHeight and entityBottom > trunkY then
+               
+             if not chunkManager or chunkManager:isPositionActive(tree.x, tree.y) then
+                return true
             end
         end
-        love.graphics.setColor(1, 1, 1, 1)
-        return
+    end
+    return false
+end
+
+function World:getTreesForDrawing(chunkManager, camera)
+    local drawList = {}
+    if not self.trees then return drawList end
+    
+    local visibleTrees = self.trees
+    if chunkManager and camera then
+        local cameraMinX = camera.x - 200
+        local cameraMinY = camera.y - 200
+        local cameraMaxX = camera.x + camera.width + 200
+        local cameraMaxY = camera.y + camera.height + 200
+        
+        visibleTrees = {}
+        for _, tree in ipairs(self.trees) do
+            if tree.x >= cameraMinX and tree.x <= cameraMaxX and
+               tree.y >= cameraMinY and tree.y <= cameraMaxY then
+                if chunkManager:isPositionActive(tree.x, tree.y) then
+                    table.insert(visibleTrees, tree)
+                end
+            end
+        end
     end
     
+    for _, tree in ipairs(visibleTrees) do
+        table.insert(drawList, {
+            type = "tree",
+            x = tree.x,
+            y = tree.y + 64, -- Sort by visual base of trunk (approx 64px down), not image bottom
+            originalY = tree.y,
+            width = tree.width,
+            height = tree.height,
+            treeType = tree.type or "standard"
+        })
+    end
+    return drawList
+end
+
+
+function World:drawFloor(camera)
     local cameraX = math.floor(camera.x + 0.5)
     local cameraY = math.floor(camera.y + 0.5)
     local margin = 3
@@ -396,76 +636,88 @@ function World:drawFloor(camera)
     startY = math.max(0, startY)
     endX = math.min(math.ceil(self.worldWidth / TILE_SIZE) - 1, endX)
     endY = math.min(math.ceil(self.worldHeight / TILE_SIZE) - 1, endY)
-    
-    love.graphics.setColor(1, 1, 1, 1)
 
-    if self.tilesetImage then
-        -- Draw tiles (grass or roads)
-        for ty = startY, endY do
-            for tx = startX, endX do
-                -- 1. Draw Background Grass EVERYWHERE
-                if self.grassImage then
-                    love.graphics.draw(self.grassImage, tx * TILE_SIZE, ty * TILE_SIZE)
-                end
-
-                -- 2. Draw Road on Top (Narnia Overlay)
-                local roadTileID = self.roadGenerator:getRoadTile(tx, ty)
-
-                if roadTileID then
-                     local quad = self:getRoadQuad(roadTileID)
-                     if quad then
-                        -- Apply manual offsets for Inner Corners (User Fix: 1 Tile Offset)
-                        local drawX = tx * TILE_SIZE
-                        local drawY = ty * TILE_SIZE
-                        
-                        -- Tile 10 (INNER_NW): Left 1, Up 1
-                        if roadTileID == 10 then
-                            drawX = drawX - TILE_SIZE
-                            drawY = drawY - TILE_SIZE
-                        end
-
-                        -- Tile 11 (INNER_NE): Right 1, Up 1
-                        if roadTileID == 11 then
-                            drawX = drawX + TILE_SIZE
-                            drawY = drawY - TILE_SIZE
-                        end
-                        
-                        -- Tile 13 (INNER_SW): Left 1, Down 1
-                        if roadTileID == 13 then
-                            drawX = drawX - TILE_SIZE
-                            drawY = drawY + TILE_SIZE
-                        end
-
-                        -- Tile 14 (INNER_SE): Right 1, Down 1
-                        if roadTileID == 14 then
-                            drawX = drawX + TILE_SIZE
-                            drawY = drawY + TILE_SIZE
-                        end
-                        
-                        -- Tile 3 (CORNER_NE, Dirt BL): Left 1, Down 1 (1px alignment)
-                        if roadTileID == 3 then
-                            drawX = drawX - 1
-                            drawY = drawY + 1
-                        end
-
-                        love.graphics.draw(
-                            self.tilesetImage,
-                            quad,
-                            drawX,
-                            drawY
-                        )
-                    end
+    -- 1. Draw Background Grass EVERYWHERE using SpriteBatch
+    if self.grassImage and self.grassBatch then
+        -- Only rebuild SpriteBatch if camera moved to new tiles
+        local needsRebuild = self.lastGrassStartX ~= startX or 
+                             self.lastGrassStartY ~= startY or 
+                             self.lastGrassEndX ~= endX or 
+                             self.lastGrassEndY ~= endY or
+                             self.spriteBatchDirty
+        
+        if needsRebuild then
+            self.grassBatch:clear()
+            for ty = startY, endY do
+                for tx = startX, endX do
+                    self.grassBatch:add(tx * TILE_SIZE, ty * TILE_SIZE)
                 end
             end
+            
+            -- Update tracking
+            self.lastGrassStartX = startX
+            self.lastGrassStartY = startY
+            self.lastGrassEndX = endX
+            self.lastGrassEndY = endY
+            self.spriteBatchDirty = false
         end
+        
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(self.grassBatch)
     else
-        -- Fallback when no tileset: draw colored rectangles
+        -- Fallback green rectangles
         love.graphics.setColor(0.2, 0.6, 0.2, 1)
         for ty = startY, endY do
             for tx = startX, endX do
                 love.graphics.rectangle("fill", tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
             end
         end
+    end
+
+    -- 2. Draw Road and Water on Top
+    if self.tilesetImage then
+        love.graphics.setColor(1, 1, 1, 1)
+        for ty = startY, endY do
+            for tx = startX, endX do
+                -- Road
+                local roadTileID = self.roadGenerator:getRoadTile(tx, ty)
+                if roadTileID then
+                    local quad = self:getRoadQuad(roadTileID)
+                    if quad then
+                        love.graphics.draw(self.tilesetImage, quad, tx * TILE_SIZE, ty * TILE_SIZE)
+                    end
+                end
+
+                -- Water
+                local waterTileID = self.waterGenerator:getWaterTile(tx, ty)
+                if waterTileID then
+                     if waterTileID == 5 and self.waterMiddle then
+                        love.graphics.draw(self.waterMiddle, tx * TILE_SIZE, ty * TILE_SIZE)
+                     elseif self.waterTileset and self.waterQuads then
+                         local quad = self.waterQuads[waterTileID]
+                         if quad then
+                            love.graphics.draw(self.waterTileset, quad, tx * TILE_SIZE, ty * TILE_SIZE)
+                         end
+                     end
+                end
+            end
+        end
+    end
+end
+
+function World:drawRock(rockItem)
+    if self.rocksImage and self.rocksQuads and self.rocksQuads[rockItem.tileId] then
+        love.graphics.setColor(1, 1, 1, 1)
+        local drawY = rockItem.originalY or (rockItem.y - 12)
+        love.graphics.draw(
+            self.rocksImage,
+            self.rocksQuads[rockItem.tileId],
+            rockItem.x,
+            drawY
+        )
+    else
+        love.graphics.setColor(1, 0, 0, 1)
+        love.graphics.rectangle("fill", rockItem.x, rockItem.y - 12, 16, 16)
         love.graphics.setColor(1, 1, 1, 1)
     end
 end
@@ -543,19 +795,53 @@ function World:checkRockCollision(x, y, width, height, chunkManager)
     return false
 end
 
-function World:drawRock(rockItem)
-    if self.rocksImage and self.rocksQuads and self.rocksQuads[rockItem.tileId] then
+function World:checkWaterCollision(x, y, width, height)
+    local left = math.floor(x / TILE_SIZE)
+    local right = math.floor((x + width - 1) / TILE_SIZE)
+    local top = math.floor(y / TILE_SIZE)
+    local bottom = math.floor((y + height - 1) / TILE_SIZE)
+
+    for tileY = top, bottom do
+        for tileX = left, right do
+            local tileID = self.waterGenerator:getWaterTile(tileX, tileY)
+            if tileID then
+                local masks = Constants.WATER_COLLISION_MASKS[tileID]
+                if masks then
+                    for _, mask in ipairs(masks) do
+                        local maskX = tileX * TILE_SIZE + mask.x
+                        local maskY = tileY * TILE_SIZE + mask.y
+                        local maskW = mask.w
+                        local maskH = mask.h
+                        
+                        if x < maskX + maskW and x + width > maskX and
+                           y < maskY + maskH and y + height > maskY then
+                            return true
+                        end
+                    end
+                else
+                    -- Default to full tile collision if no mask defined
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+function World:drawTree(treeItem)
+    local img = self.treeImages and self.treeImages[treeItem.treeType or "standard"]
+    if not img then img = self.treeImage end -- Fallback
+
+    if img then
         love.graphics.setColor(1, 1, 1, 1)
-        local drawY = rockItem.originalY or (rockItem.y - 12)
         love.graphics.draw(
-            self.rocksImage,
-            self.rocksQuads[rockItem.tileId],
-            rockItem.x,
-            drawY
+            img,
+            treeItem.x,
+            treeItem.originalY
         )
     else
-        love.graphics.setColor(1, 0, 0, 1)
-        love.graphics.rectangle("fill", rockItem.x, rockItem.y - 12, 16, 16)
+        love.graphics.setColor(0, 0.5, 0, 1)
+        love.graphics.rectangle("fill", treeItem.x, treeItem.originalY, treeItem.width, treeItem.height)
         love.graphics.setColor(1, 1, 1, 1)
     end
 end

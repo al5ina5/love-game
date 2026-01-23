@@ -1,0 +1,15 @@
+{
+    "name": "pixelraiders",
+    "version": "1.0.0",
+    "description": "Pixel Raiders - Multiplayer Game",
+    "main": "main.lua",
+    "scripts": {
+        "start": "/Applications/love.app/Contents/MacOS/love .",
+        "build": "./build_portmaster.sh",
+        "deploy": "./deploy.sh",
+        "tools:collision": "npm run dev --prefix tools/collision-editor",
+        "multi": "/Applications/love.app/Contents/MacOS/love . & /Applications/love.app/Contents/MacOS/love ."
+    },
+    "author": "",
+    "license": "ISC"
+}

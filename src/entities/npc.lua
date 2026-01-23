@@ -27,19 +27,7 @@ function NPC:new(x, y, spritePath, name, dialogueLines)
     self.frameTime = 0.2  -- seconds per frame (slightly slower for idle)
     
     -- Load sprite sheet (16x16 per frame, 4 frames horizontal)
-    self.spriteSheet = love.graphics.newImage(spritePath)
-    self.frameWidth = 16
-    self.frameHeight = 16
-    
-    -- Create quads for each frame
-    self.quads = {}
-    for i = 0, self.frameCount - 1 do
-        self.quads[i + 1] = love.graphics.newQuad(
-            i * self.frameWidth, 0,
-            self.frameWidth, self.frameHeight,
-            self.spriteSheet:getDimensions()
-        )
-    end
+    self:loadSprite(spritePath)
     
     -- Sprite size for collision/positioning
     self.width = 16
@@ -49,6 +37,25 @@ function NPC:new(x, y, spritePath, name, dialogueLines)
     self.originY = 12
     
     return self
+end
+
+function NPC:loadSprite(spritePath)
+    local ResourceManager = require('src.game.resource_manager')
+    self.spriteSheet = ResourceManager.getImage(spritePath)
+    self.frameWidth = 16
+    self.frameHeight = 16
+    
+    -- Create quads for each frame
+    self.quads = {}
+    if self.spriteSheet then
+        for i = 0, self.frameCount - 1 do
+            self.quads[i + 1] = love.graphics.newQuad(
+                i * self.frameWidth, 0,
+                self.frameWidth, self.frameHeight,
+                self.spriteSheet:getDimensions()
+            )
+        end
+    end
 end
 
 function NPC:update(dt)

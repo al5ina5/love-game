@@ -61,7 +61,15 @@ function Player:update(dt)
     -- Check for sprint (shift key or gamepad trigger/shoulder)
     local isSprinting = Input:isSprintDown()
     self.isSprinting = isSprinting  -- Store for network sync
-    local sprintMultiplier = isSprinting and 1.5 or 1.0
+    
+    local sprintMultiplier = 1.0
+    if isSprinting then
+        if Constants.DEV_MODE then
+            sprintMultiplier = Constants.DEV_SPRINT_MULTIPLIER or 1.5
+        else
+            sprintMultiplier = 1.5
+        end
+    end
     local currentSpeed = self.speed * sprintMultiplier
 
     -- Update position directly (disable complex prediction for now to fix movement)
