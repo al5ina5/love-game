@@ -71,16 +71,134 @@ function Game:load()
     -- Create pet that follows the player
     self.pet = Pet:new(self.player)
     
-    -- Create NPCs
+    -- Create NPCs with fragmented cryptic story about love
     self.npcs = {}
-    local elfBladedancer = NPC:new(
-        WORLD_W / 2 + 50,  -- 50 pixels to the right of spawn
-        WORLD_H / 2,
-        "assets/img/sprites/humans/Elf Bladedancer/ElfBladedancer.png",
-        "Bead Guy",
+    
+    -- Part 1: The Beard Guy (Overworked Villager) - Starts the mystery
+    local beardGuy = NPC:new(
+        WORLD_W / 2 + 80,
+        WORLD_H / 2 - 40,
+        "assets/img/sprites/humans/Overworked Villager/OverworkedVillager.png",
+        "Old Wanderer",
         {
-            "The path you walk... few dare to take it. They say the dreamer never sleeps.",
-            "Chase what calls you. The rest is noise. Go on, then. The road remembers.",
+            "They say love is the key. But to what door? I've forgotten.",
+            "The one who walks the ancient paths might remember. Find the keeper of old truths.",
+        }
+    )
+    table.insert(self.npcs, beardGuy)
+    
+    -- Part 2: Elf Lord - The ancient truth
+    local elfLord = NPC:new(
+        WORLD_W / 2 - 120,
+        WORLD_H / 2 + 60,
+        "assets/img/sprites/humans/Elf Lord/ElfLord.png",
+        "Keeper of Truths",
+        {
+            "Love binds what time cannot. It's the thread that holds worlds together.",
+            "But threads can fray. The mystic knows how they connect. Seek the one who reads the currents.",
+        }
+    )
+    table.insert(self.npcs, elfLord)
+    
+    -- Part 3: Merfolk Mystic - The connection
+    local merfolkMystic = NPC:new(
+        WORLD_W / 2 + 150,
+        WORLD_H / 2 + 100,
+        "assets/img/sprites/humans/Merfolk Mystic/MerfolkMystic.png",
+        "Current Reader",
+        {
+            "Every bond is a current. Love flows between souls like water between stones.",
+            "But currents can be redirected. The enchanter understands this power. Find the one who shapes what cannot be seen.",
+        }
+    )
+    table.insert(self.npcs, merfolkMystic)
+    
+    -- Part 4: Elf Enchanter - The power
+    local elfEnchanter = NPC:new(
+        WORLD_W / 2 - 200,
+        WORLD_H / 2 - 80,
+        "assets/img/sprites/humans/Elf Enchanter/ElfEnchanter.png",
+        "Shape Shifter",
+        {
+            "Love shapes reality itself. It's not just feeling—it's a force that remakes the world.",
+            "But forces can be dangerous. The young wanderer has seen what happens when it breaks. Look for the one who carries scars.",
+        }
+    )
+    table.insert(self.npcs, elfEnchanter)
+    
+    -- Part 5: Adventurous Adolescent - The warning
+    local adventurousAdolescent = NPC:new(
+        WORLD_W / 2 + 250,
+        WORLD_H / 2 - 120,
+        "assets/img/sprites/humans/Adventurous Adolescent/AdventurousAdolescent.png",
+        "Scarred Wanderer",
+        {
+            "I've seen what happens when love is lost. The world grows cold. Colors fade.",
+            "But I've also seen it return. The loud one knows how. Find the voice that never quiets.",
+        }
+    )
+    table.insert(self.npcs, adventurousAdolescent)
+    
+    -- Part 6: Boisterous Youth - The revelation
+    local boisterousYouth = NPC:new(
+        WORLD_W / 2 - 80,
+        WORLD_H / 2 - 150,
+        "assets/img/sprites/humans/Boisterous Youth/BoisterousYouth.png",
+        "The Voice",
+        {
+            "Love isn't found—it's chosen. Every moment you choose connection over isolation.",
+            "The wayfarer has walked this path longer than any. They know where it leads. Find the one who never stops moving.",
+        }
+    )
+    table.insert(self.npcs, boisterousYouth)
+    
+    -- Part 7: Elf Wayfarer - The conclusion
+    local elfWayfarer = NPC:new(
+        WORLD_W / 2 + 180,
+        WORLD_H / 2 + 180,
+        "assets/img/sprites/humans/Elf Wayfarer/ElfWayfarer.png",
+        "The Eternal Walker",
+        {
+            "I've walked every path. Love is the only thing that makes any of them matter.",
+            "Without it, we're just shadows moving through an empty world. With it... we become real.",
+            "The old wanderer was right. It is the key. But the door? That's for you to find.",
+        }
+    )
+    table.insert(self.npcs, elfWayfarer)
+    
+    -- Additional NPCs for flavor and red herrings
+    local joyfulKid = NPC:new(
+        WORLD_W / 2 - 300,
+        WORLD_H / 2 + 200,
+        "assets/img/sprites/humans/Joyful Kid/JoyfulKid.png",
+        "Little One",
+        {
+            "Everyone talks about love but nobody explains it!",
+            "Maybe the grown-ups don't know either?",
+        }
+    )
+    table.insert(self.npcs, joyfulKid)
+    
+    local playfulChild = NPC:new(
+        WORLD_W / 2 + 300,
+        WORLD_H / 2 - 200,
+        "assets/img/sprites/humans/Playful Child/PlayfulChild.png",
+        "Curious Child",
+        {
+            "I heard the old wanderer talking about keys and doors!",
+            "Do you think there's a secret door somewhere?",
+        }
+    )
+    table.insert(self.npcs, playfulChild)
+    
+    local elfBladedancer = NPC:new(
+        WORLD_W / 2 - 250,
+        WORLD_H / 2 + 250,
+        "assets/img/sprites/humans/Elf Bladedancer/ElfBladedancer.png",
+        "Silent Guardian",
+        {
+            "I guard the paths. Many seek answers. Few find them.",
+            "The truth is scattered. You must gather all the pieces.",
         }
     )
     table.insert(self.npcs, elfBladedancer)

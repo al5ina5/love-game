@@ -13,87 +13,107 @@ local Constants = {}
 local env_value = os.getenv("USE_LOCAL_API")
 print("Constants: USE_LOCAL_API env value = " .. tostring(env_value))
 
--- Try to read from .env file if env var is not set
-if not env_value then
-    -- Helper function to parse .env file content
-    local function parseEnvContent(content)
-        for line in content:gmatch("[^\r\n]+") do
-            -- Skip comments and empty lines
-            line = line:match("^%s*(.-)%s*$")  -- trim
-            if line and not line:match("^#") and line ~= "" then
-                -- Parse KEY=VALUE format (handle quoted values)
-                local key, value = line:match("^([^=]+)=(.+)$")
-                if key and value then
-                    key = key:match("^%s*(.-)%s*$")  -- trim
-                    value = value:match("^%s*(.-)%s*$")  -- trim
-                    -- Remove quotes if present
-                    value = value:match("^[\"'](.-)[\"']$") or value
-                    if key == "USE_LOCAL_API" then
-                        return value
-                    end
-                end
-            end
-        end
-        return nil
-    end
-    
-    -- Try multiple paths for .env file
-    local env_paths = {}
-    
-    -- Add current working directory
-    table.insert(env_paths, ".env")
-    
-    -- Add paths relative to LÖVE source
-    if love and love.filesystem then
-        local source = love.filesystem.getSource()
-        if source then
-            table.insert(env_paths, source .. "/.env")
-            -- Also try parent directory (in case running from src/)
-            table.insert(env_paths, source .. "/../.env")
-        end
-    end
-    
-    -- Try io.open for each path
-    for _, path in ipairs(env_paths) do
-        local env_file = io.open(path, "r")
-        if env_file then
-            print("Constants: Trying to read .env from: " .. path)
-            local content = env_file:read("*all")
-            env_file:close()
-            if content then
-                env_value = parseEnvContent(content)
-                if env_value then
-                    print("Constants: Found USE_LOCAL_API in .env file: " .. tostring(env_value) .. " (from " .. path .. ")")
-                    break
-                end
+-- Helper function to parse .env file content
+local function parseEnvContent(content)
+    local env_vars = {}
+    for line in content:gmatch("[^\r\n]+") do
+        -- Skip comments and empty lines
+        line = line:match("^%s*(.-)%s*$")  -- trim
+        if line and not line:match("^#") and line ~= "" then
+            -- Parse KEY=VALUE format (handle quoted values)
+            local key, value = line:match("^([^=]+)=(.+)$")
+            if key and value then
+                key = key:match("^%s*(.-)%s*$")  -- trim
+                value = value:match("^%s*(.-)%s*$")  -- trim
+                -- Remove quotes if present
+                value = value:match("^[\"'](.-)[\"']$") or value
+                env_vars[key] = value
             end
         end
     end
-    
-    -- Try love.filesystem as fallback
-    if not env_value and love and love.filesystem then
-        local success, contents = pcall(function()
-            if love.filesystem.getInfo(".env") then
-                return love.filesystem.read(".env")
+    return env_vars
+end
+
+-- Always try to read .env file for custom API URLs and USE_LOCAL_API
+local env_vars = {}
+
+-- Try multiple paths for .env file
+local env_paths = {}
+
+-- Add current working directory
+table.insert(env_paths, ".env")
+
+-- Add paths relative to LÖVE source
+if love and love.filesystem then
+    local source = love.filesystem.getSource()
+    if source then
+        table.insert(env_paths, source .. "/.env")
+        -- Also try parent directory (in case running from src/)
+        table.insert(env_paths, source .. "/../.env")
+    end
+end
+
+-- Try io.open for each path
+for _, path in ipairs(env_paths) do
+    local env_file = io.open(path, "r")
+    if env_file then
+        print("Constants: Trying to read .env from: " .. path)
+        local content = env_file:read("*all")
+        env_file:close()
+        if content then
+            env_vars = parseEnvContent(content)
+            -- Only override env_value if it wasn't set via environment variable
+            if not env_value and env_vars["USE_LOCAL_API"] then
+                env_value = env_vars["USE_LOCAL_API"]
+                print("Constants: Found USE_LOCAL_API in .env file: " .. tostring(env_value) .. " (from " .. path .. ")")
             end
-        end)
-        if success and contents then
-            print("Constants: Reading .env via love.filesystem")
-            env_value = parseEnvContent(contents)
-            if env_value then
-                print("Constants: Found USE_LOCAL_API in .env file (via love.filesystem): " .. tostring(env_value))
+            if next(env_vars) then
+                break
             end
         end
     end
-    
-    if not env_value then
-        print("Constants: No .env file found or USE_LOCAL_API not in .env")
+end
+
+-- Try love.filesystem as fallback
+if not next(env_vars) and love and love.filesystem then
+    local success, contents = pcall(function()
+        if love.filesystem.getInfo(".env") then
+            return love.filesystem.read(".env")
+        end
+    end)
+    if success and contents then
+        print("Constants: Reading .env via love.filesystem")
+        env_vars = parseEnvContent(contents)
+        -- Only override env_value if it wasn't set via environment variable
+        if not env_value and env_vars["USE_LOCAL_API"] then
+            env_value = env_vars["USE_LOCAL_API"]
+            print("Constants: Found USE_LOCAL_API in .env file (via love.filesystem): " .. tostring(env_value))
+        end
     end
+end
+
+if not env_value and not next(env_vars) then
+    print("Constants: No .env file found")
 end
 
 local USE_LOCAL_API = env_value == "true"
 
-if USE_LOCAL_API then
+-- Check for custom API URLs in .env file (takes precedence)
+local custom_api_url = env_vars["API_BASE_URL"]
+local custom_relay_host = env_vars["RELAY_HOST"]
+local custom_relay_port = env_vars["RELAY_PORT"]
+
+if custom_api_url then
+    -- Use custom API URLs from .env file
+    Constants.API_BASE_URL = custom_api_url
+    Constants.RELAY_HOST = custom_relay_host or "localhost"
+    Constants.RELAY_PORT = tonumber(custom_relay_port) or 12346
+    print("========================================")
+    print("Constants: Using CUSTOM API from .env")
+    print("  API: " .. Constants.API_BASE_URL)
+    print("  Relay: " .. Constants.RELAY_HOST .. ":" .. Constants.RELAY_PORT)
+    print("========================================")
+elseif USE_LOCAL_API then
     Constants.API_BASE_URL = "http://localhost:3000"
     Constants.RELAY_HOST = "localhost"
     Constants.RELAY_PORT = 12346

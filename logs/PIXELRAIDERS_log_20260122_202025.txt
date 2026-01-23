@@ -1,0 +1,388 @@
+=== Pixel Raiders Launch Log ===
+Timestamp: Fri Jan 23 01:15:51 UTC 2026
+PID: 15264
+
+Starting launch script...
+Script path: /mnt/sdcard/Roms/PORTS/PIXELRAIDERS.sh
+Working directory: /mnt/SDCARD/spruce/scripts
+User: root
+
+XDG_DATA_HOME: /mnt/SDCARD/Saves/flip/home/.local/share
+Searching for PortMaster control folder...
+Found: /mnt/SDCARD/Saves/flip/home/.local/share/PortMaster/
+Control folder: /mnt/SDCARD/Saves/flip/home/.local/share/PortMaster
+
+Sourcing control.txt...
+CFW_NAME: Miyoo
+DEVICE_NAME: Miyoo Flip
+DEVICE_ARCH: aarch64
+directory: /mnt/SDCARD/Roms/PORTS/
+
+Controls configured
+Sourcing mod file: /mnt/SDCARD/Persistent/portmaster/PortMaster/mod_Miyoo.txt
+
+Resolving game directory...
+Initial GAMEDIR: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+After leading slash check: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+Final GAMEDIR: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+GAMEDIR exists: yes
+
+Changing to game directory...
+Current directory: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+
+Setting up saves directory...
+XDG_DATA_HOME: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/saves
+XDG_CONFIG_HOME: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/saves
+
+Moving log to final location: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/log.txt
+=== Launch Process Starting ===
+Date: Fri Jan 23 01:15:51 UTC 2026
+GAMEDIR: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+Device: Miyoo Flip (aarch64)
+
+Checking required files...
+✓ Found: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/PIXELRAIDERS.love (192.0K)
+✓ Found: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/PIXELRAIDERS.gptk
+
+Searching for LÖVE binary...
+Checking PortMaster runtimes...
+  Checking: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64
+  ✓ Found LÖVE 11.5 at: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64
+  LD_LIBRARY_PATH: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/libs.aarch64:/mnt/SDCARD/Persistent/portmaster/lib:/mnt/SDCARD/spruce/flip/lib/:/usr/lib:/mnt/SDCARD/spruce/flip/muOS/usr/lib/:/mnt/SDCARD/spruce/flip/muOS/lib/:/usr/lib32:/mnt/SDCARD/spruce/flip/lib32/:/mnt/SDCARD/spruce/flip/muOS/usr/lib32/:/mnt/SDCARD/spruce/flip/lib:/usr/miyoo/lib:/usr/lib:/lib
+Using LÖVE binary: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64
+✓ Binary is executable
+LÖVE version: LOVE 11.5 (Mysterious Mysteries)
+
+LOVE_NAME for gptokeyb: love.aarch64
+
+Checking for gptokeyb...
+=== Launching Game ===
+Command: "/mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64" "/mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/PIXELRAIDERS.love"
+
+Running pm_platform_helper...
+
+
+Executing LÖVE...
+--- Game Output Below ---
+
+SDL_UDEV_DEVICEADDED 2 /dev/input/event3
+SDL_UDEV_DEVICEADDED 2 /dev/input/event2
+SDL_UDEV_DEVICEADDED 2 /dev/input/event4
+SDL_UDEV_DEVICEADDED 2 /dev/input/event0
+SDL_UDEV_DEVICEADDED 2 /dev/input/event1
+SDL_UDEV_DEVICEADDED 8 /dev/audio1
+SDL_UDEV_DEVICEADDED 8 /dev/dsp1
+SDL_UDEV_DEVICEADDED 8 /dev/mixer1
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC1D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC1
+SDL_UDEV_DEVICEADDED 8 /dev/audio
+SDL_UDEV_DEVICEADDED 8 /dev/dsp
+SDL_UDEV_DEVICEADDED 8 /dev/mixer
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0c
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC0
+SDL_UDEV_DEVICEADDED 4 /dev/input/event5
+SDL_UDEV_DEVICEADDED 4 /dev/input/js0
+SDL_UDEV_DEVICEADDED 8 /dev/snd/seq
+SDL_UDEV_DEVICEADDED 8 /dev/snd/timer
+arm_release_ver of this libmali is 'g2p0-01eac0', rk_so_ver is '3'.Constants: USE_LOCAL_API env value = nil
+Constants: No .env file found
+========================================
+Constants: Using PRODUCTION API
+  API: https://love-game-production.up.railway.app
+  Relay: ballast.proxy.rlwy.net:16563
+========================================
+=== createFloorTiles() called ===
+Loading tileset from: assets/img/tileset/tileset-v1.png
+Tileset loaded: 192x320
+Tileset dimensions: 12 columns x 20 rows
+Total possible tiles: 240
+Assuming grid layout
+Total quads created: 240
+Using grass tile ID: 34 (out of 240 total)
+Final grass tile ID: 34
+Tile quads created: 4
+=== createFloorTiles() completed ===
+✓ tilesetImage loaded
+✓ tileQuads created (4 quads)
+✗ tileMap is nil!
+=== loadRocks() called ===
+Rocks image loaded: 80x64
+Created quad for rock tile 1 -> valid index 1 at (0, 0)
+Created quad for rock tile 2 -> valid index 2 at (1, 0)
+Created quad for rock tile 3 -> valid index 3 at (2, 0)
+Created quad for rock tile 4 -> valid index 4 at (3, 0)
+Created quad for rock tile 5 -> valid index 5 at (4, 0)
+Created quad for rock tile 6 -> valid index 6 at (0, 1)
+Created quad for rock tile 7 -> valid index 7 at (1, 1)
+Created quad for rock tile 8 -> valid index 8 at (2, 1)
+Created quad for rock tile 9 -> valid index 9 at (3, 1)
+Created quad for rock tile 11 -> valid index 10 at (0, 2)
+Created quad for rock tile 12 -> valid index 11 at (1, 2)
+Created quad for rock tile 16 -> valid index 12 at (0, 3)
+Created quad for rock tile 17 -> valid index 13 at (1, 3)
+Total valid rock quads created: 13
+=== loadRocks() completed ===
+=== generateRocks() called ===
+isHost: false
+rocksQuads count: 13
+Generated 200 rocks using only tile types: 3, 4
+First rock at: (560, 240), tileId: 4
+Last rock at: (1120, 256), tileId: 3
+=== generateRocks() completed ===
+Game: Attempting to auto-join or create server...
+OnlineClient: Initialized with API URL: https://love-game-production.up.railway.app
+OnlineClient: Using HTTP method: simple
+OnlineClient: HTTP GET https://love-game-production.up.railway.app/api/list-rooms
+OnlineClient: SimpleHTTP request failed: HTTP 0: 
+Game: Found 0 available rooms
+Game: No rooms with space available, creating new public room...
+Connection: Creating online room (public: true)
+OnlineClient: Initialized with API URL: https://love-game-production.up.railway.app
+OnlineClient: Using HTTP method: simple
+OnlineClient: Creating room (public: true) at https://love-game-production.up.railway.app/api/create-room
+OnlineClient: HTTP POST https://love-game-production.up.railway.app/api/create-room
+OnlineClient: Request body: {"isPublic":true}
+OnlineClient: SimpleHTTP request failed: HTTP 0: 
+OnlineClient: createRoom failed - success=false, response=HTTP 0: 
+Connection: Failed to create online room: HTTP 0: 
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 rocks (total: 200)
+Drew 368 tiles. Camera: (680, 532)
+Drawing: 200 roc
