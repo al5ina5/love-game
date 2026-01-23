@@ -16,6 +16,9 @@ function NPC:new(x, y, spritePath, name, dialogueLines)
     self.dialogueLines = dialogueLines or {"..."}
     self.interactionRadius = 24  -- pixels
     
+    -- Store sprite path for network sync
+    self.spritePath = spritePath or ""
+    
     -- Animation state
     self.direction = "down"
     self.animTimer = 0

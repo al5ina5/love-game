@@ -1,0 +1,110 @@
+=== Pixel Raiders Launch Log ===
+Timestamp: Fri Jan 23 02:56:17 UTC 2026
+PID: 24171
+
+Starting launch script...
+Script path: /mnt/sdcard/Roms/PORTS/PIXELRAIDERS.sh
+Working directory: /mnt/SDCARD/spruce/scripts
+User: root
+
+XDG_DATA_HOME: /mnt/SDCARD/Saves/flip/home/.local/share
+Searching for PortMaster control folder...
+Found: /mnt/SDCARD/Saves/flip/home/.local/share/PortMaster/
+Control folder: /mnt/SDCARD/Saves/flip/home/.local/share/PortMaster
+
+Sourcing control.txt...
+CFW_NAME: Miyoo
+DEVICE_NAME: Miyoo Flip
+DEVICE_ARCH: aarch64
+directory: /mnt/SDCARD/Roms/PORTS/
+
+Controls configured
+Sourcing mod file: /mnt/SDCARD/Persistent/portmaster/PortMaster/mod_Miyoo.txt
+
+Resolving game directory...
+Initial GAMEDIR: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+After leading slash check: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+Final GAMEDIR: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+GAMEDIR exists: yes
+
+Changing to game directory...
+Current directory: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+
+Setting up saves directory...
+XDG_DATA_HOME: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/saves
+XDG_CONFIG_HOME: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/saves
+
+Moving log to final location: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/log.txt
+=== Launch Process Starting ===
+Date: Fri Jan 23 02:56:17 UTC 2026
+GAMEDIR: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS
+Device: Miyoo Flip (aarch64)
+
+Checking required files...
+✓ Found: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/PIXELRAIDERS.love (256.0K)
+✓ Found: /mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/PIXELRAIDERS.gptk
+
+Searching for LÖVE binary...
+Checking PortMaster runtimes...
+  Checking: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64
+  ✓ Found LÖVE 11.5 at: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64
+  LD_LIBRARY_PATH: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/libs.aarch64:/mnt/SDCARD/Persistent/portmaster/lib:/mnt/SDCARD/spruce/flip/lib/:/usr/lib:/mnt/SDCARD/spruce/flip/muOS/usr/lib/:/mnt/SDCARD/spruce/flip/muOS/lib/:/usr/lib32:/mnt/SDCARD/spruce/flip/lib32/:/mnt/SDCARD/spruce/flip/muOS/usr/lib32/:/mnt/SDCARD/spruce/flip/lib:/usr/miyoo/lib:/usr/lib:/lib
+Using LÖVE binary: /mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64
+✓ Binary is executable
+LÖVE version: LOVE 11.5 (Mysterious Mysteries)
+
+LOVE_NAME for gptokeyb: love.aarch64
+
+Checking for gptokeyb...
+=== Launching Game ===
+Command: "/mnt/SDCARD/Persistent/portmaster/PortMaster/runtimes/love_11.5/love.aarch64" "/mnt/SDCARD/Roms/PORTS/PIXELRAIDERS/PIXELRAIDERS.love"
+
+Running pm_platform_helper...
+
+
+Executing LÖVE...
+--- Game Output Below ---
+
+SDL_UDEV_DEVICEADDED 2 /dev/input/event3
+SDL_UDEV_DEVICEADDED 2 /dev/input/event2
+SDL_UDEV_DEVICEADDED 2 /dev/input/event4
+SDL_UDEV_DEVICEADDED 2 /dev/input/event0
+SDL_UDEV_DEVICEADDED 2 /dev/input/event1
+SDL_UDEV_DEVICEADDED 8 /dev/audio1
+SDL_UDEV_DEVICEADDED 8 /dev/dsp1
+SDL_UDEV_DEVICEADDED 8 /dev/mixer1
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC1D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC1
+SDL_UDEV_DEVICEADDED 8 /dev/audio
+SDL_UDEV_DEVICEADDED 8 /dev/dsp
+SDL_UDEV_DEVICEADDED 8 /dev/mixer
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0c
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC0
+SDL_UDEV_DEVICEADDED 4 /dev/input/event5
+SDL_UDEV_DEVICEADDED 4 /dev/input/js0
+SDL_UDEV_DEVICEADDED 8 /dev/snd/seq
+SDL_UDEV_DEVICEADDED 8 /dev/snd/timer
+arm_release_ver of this libmali is 'g2p0-01eac0', rk_so_ver is '3'.Constants: USE_LOCAL_API env value = nil
+Constants: Reading .env via love.filesystem
+========================================
+Constants: Using CUSTOM API from .env
+  API: http://10.0.0.197:3000
+  Relay: 10.0.0.197:12346
+========================================
+World: Using procedural tile generation (no pre-generated tile map)
+World: Generating 4000 rocks (optimized for low-end devices)
+Game: Completing deferred loading...
+Game: Attempting to auto-join or create server...
+OnlineClient: Initialized with API URL: http://10.0.0.197:3000
+OnlineClient: Using HTTP method: simple
+OnlineClient: HTTP GET http://10.0.0.197:3000/api/list-rooms
+OnlineClient: SimpleHTTP request succeeded
+Game: Found 1 available rooms
+Game: Found room with space: 408743 (1/10)
+Game: Auto-joining room: 408743
+Connection: Joining online room 408743
+OnlineClient: Initialized with API URL: http://10.0.0.197:3000
+OnlineClient: Using HTTP method: simple
+OnlineClient: HTTP POST http://10.0.0.197:3000/api/join-room
+OnlineClient: Request body: {"roomCode":"408743"}

@@ -1,10 +1,89 @@
 -- src/ui/menu.lua
 -- Menu system for Boon Snatch multiplayer
 -- ESC/START to open, not open by default
--- Uses 04B_30__.TTF font and standardized design
+-- Uses runescape_uf.ttf font and standardized design
 
 local Menu = {}
 Menu.__index = Menu
+
+-- Sanitize text to remove invalid UTF-8 sequences and problematic characters
+local function sanitizeText(text)
+    if not text or type(text) ~= "string" then
+        return ""
+    end
+    
+    -- Remove or replace problematic characters
+    -- Keep only printable ASCII and common UTF-8 characters
+    local sanitized = ""
+    local i = 1
+    while i <= #text do
+        local byte = string.byte(text, i)
+        
+        -- Handle valid ASCII (0x20-0x7E are printable, 0x09 is tab, 0x0A is newline, 0x0D is carriage return)
+        if byte >= 0x20 and byte <= 0x7E then
+            sanitized = sanitized .. string.char(byte)
+            i = i + 1
+        elseif byte == 0x09 or byte == 0x0A or byte == 0x0D then
+            -- Keep tabs, newlines, and carriage returns
+            sanitized = sanitized .. string.char(byte)
+            i = i + 1
+        -- Handle UTF-8 multi-byte sequences
+        elseif byte >= 0xC0 and byte <= 0xDF then
+            -- 2-byte UTF-8 sequence
+            if i + 1 <= #text then
+                local byte2 = string.byte(text, i + 1)
+                if byte2 >= 0x80 and byte2 <= 0xBF then
+                    sanitized = sanitized .. string.sub(text, i, i + 1)
+                    i = i + 2
+                else
+                    -- Invalid sequence, skip
+                    i = i + 1
+                end
+            else
+                -- Incomplete sequence, skip
+                i = i + 1
+            end
+        elseif byte >= 0xE0 and byte <= 0xEF then
+            -- 3-byte UTF-8 sequence
+            if i + 2 <= #text then
+                local byte2 = string.byte(text, i + 1)
+                local byte3 = string.byte(text, i + 2)
+                if byte2 >= 0x80 and byte2 <= 0xBF and byte3 >= 0x80 and byte3 <= 0xBF then
+                    sanitized = sanitized .. string.sub(text, i, i + 2)
+                    i = i + 3
+                else
+                    -- Invalid sequence, skip
+                    i = i + 1
+                end
+            else
+                -- Incomplete sequence, skip
+                i = i + 1
+            end
+        elseif byte >= 0xF0 and byte <= 0xF7 then
+            -- 4-byte UTF-8 sequence
+            if i + 3 <= #text then
+                local byte2 = string.byte(text, i + 1)
+                local byte3 = string.byte(text, i + 2)
+                local byte4 = string.byte(text, i + 3)
+                if byte2 >= 0x80 and byte2 <= 0xBF and byte3 >= 0x80 and byte3 <= 0xBF and byte4 >= 0x80 and byte4 <= 0xBF then
+                    sanitized = sanitized .. string.sub(text, i, i + 3)
+                    i = i + 4
+                else
+                    -- Invalid sequence, skip
+                    i = i + 1
+                end
+            else
+                -- Incomplete sequence, skip
+                i = i + 1
+            end
+        else
+            -- Invalid byte, skip it
+            i = i + 1
+        end
+    end
+    
+    return sanitized
+end
 
 -- Menu states
 Menu.STATE = {
@@ -39,16 +118,16 @@ function Menu:new()
     self.onlineRoomCode = nil
     
     -- Load fonts with nearest-neighbor filtering for crisp pixel art
-    self.titleFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", TITLE_FONT_SIZE)
+    self.titleFont = love.graphics.newFont("assets/fonts/runescape_uf.ttf", TITLE_FONT_SIZE)
     self.titleFont:setFilter("nearest", "nearest")
     
-    self.bodyFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", BODY_FONT_SIZE)
+    self.bodyFont = love.graphics.newFont("assets/fonts/runescape_uf.ttf", BODY_FONT_SIZE)
     self.bodyFont:setFilter("nearest", "nearest")
     
-    self.optionFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", OPTION_FONT_SIZE)
+    self.optionFont = love.graphics.newFont("assets/fonts/runescape_uf.ttf", OPTION_FONT_SIZE)
     self.optionFont:setFilter("nearest", "nearest")
     
-    self.smallFont = love.graphics.newFont("assets/fonts/04B_30__.TTF", 10)
+    self.smallFont = love.graphics.newFont("assets/fonts/runescape_uf.ttf", 10)
     self.smallFont:setFilter("nearest", "nearest")
     
     -- Menu navigation
@@ -167,7 +246,7 @@ function Menu:drawTitle(text, y)
     -- Scale Y position and center text
     local scaledY = self._offsetY + y * self._scale
     local safeY = math.max(scaledY, self._offsetY + 10 * self._scale)
-    love.graphics.printf(text, self._offsetX, safeY, GAME_WIDTH * self._scale, "center")
+    love.graphics.printf(sanitizeText(tostring(text)), self._offsetX, safeY, GAME_WIDTH * self._scale, "center")
 end
 
 -- Draw option list (standardized, with safe bounds)
@@ -190,11 +269,11 @@ function Menu:drawOptions(options, startY)
             love.graphics.setColor(0.2, 0.3, 0.4, 1)
             love.graphics.rectangle("fill", x - 5 * self._scale, y - 2 * self._scale, 250 * self._scale, 14 * self._scale, 2 * self._scale, 2 * self._scale)
             love.graphics.setColor(0.5, 0.7, 1)
-            love.graphics.print("> " .. option, x, y)
+            love.graphics.print("> " .. sanitizeText(tostring(option)), x, y)
         else
             -- Unselected option
             love.graphics.setColor(0.8, 0.8, 0.8)
-            love.graphics.print("  " .. option, x, y)
+            love.graphics.print("  " .. sanitizeText(tostring(option)), x, y)
         end
         y = y + OPTION_SPACING * self._scale
     end
@@ -211,7 +290,7 @@ function Menu:drawHint(text)
         self._offsetY + 165 * self._scale,
         self._offsetY + GAME_HEIGHT * self._scale - self.smallFont:getHeight() - 2 * self._scale
     )
-    love.graphics.printf(text, self._offsetX, safeY, GAME_WIDTH * self._scale, "center")
+    love.graphics.printf(sanitizeText(tostring(text)), self._offsetX, safeY, GAME_WIDTH * self._scale, "center")
 end
 
 function Menu:drawMainMenu()
@@ -293,13 +372,13 @@ function Menu:drawWaiting()
         -- Display room code prominently
         love.graphics.setFont(self.titleFont)
         love.graphics.setColor(1, 1, 0.3)
-        love.graphics.printf(roomCode, self._offsetX, self._offsetY + 75 * self._scale, GAME_WIDTH * self._scale, "center")
+        love.graphics.printf(sanitizeText(tostring(roomCode)), self._offsetX, self._offsetY + 75 * self._scale, GAME_WIDTH * self._scale, "center")
         
         -- Show error if any
         if self.onlineError then
             love.graphics.setFont(self.smallFont)
             love.graphics.setColor(1, 0.3, 0.3)
-            love.graphics.printf(self.onlineError, self._offsetX, self._offsetY + 100 * self._scale, GAME_WIDTH * self._scale, "center")
+            love.graphics.printf(sanitizeText(tostring(self.onlineError)), self._offsetX, self._offsetY + 100 * self._scale, GAME_WIDTH * self._scale, "center")
         end
     else
         love.graphics.setFont(self.bodyFont)
@@ -340,7 +419,7 @@ function Menu:drawJoinCode()
         -- Draw digit
         love.graphics.setColor(1, 1, 1)
         if self.roomCodeDigits[i] and self.roomCodeDigits[i] ~= "" then
-            love.graphics.printf(self.roomCodeDigits[i], x, y + 4 * self._scale, boxSize, "center")
+            love.graphics.printf(sanitizeText(tostring(self.roomCodeDigits[i])), x, y + 4 * self._scale, boxSize, "center")
         end
     end
 end
@@ -374,8 +453,8 @@ function Menu:drawFindGame()
                 love.graphics.setColor(0.7, 0.7, 0.7)
             end
             
-            love.graphics.print(room.code or "?", self._offsetX + 40 * self._scale, y)
-            love.graphics.printf((room.players or room.playerCount or 0) .. "/" .. (room.maxPlayers or 10), self._offsetX, y, (GAME_WIDTH - 40) * self._scale, "right")
+            love.graphics.print(sanitizeText(tostring(room.code or "?")), self._offsetX + 40 * self._scale, y)
+            love.graphics.printf(sanitizeText(tostring((room.players or room.playerCount or 0) .. "/" .. (room.maxPlayers or 10))), self._offsetX, y, (GAME_WIDTH - 40) * self._scale, "right")
             
             y = y + 18 * self._scale
         end

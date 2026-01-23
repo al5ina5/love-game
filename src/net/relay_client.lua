@@ -144,11 +144,23 @@ function RelayClient:poll()
             print("RelayClient: Server error: " .. errorMsg)
             -- Could generate an error message for the game to handle
         elseif line ~= "" then
-            print("RelayClient: Received raw line: " .. line:sub(1, 100))  -- Log first 100 chars
+            -- Debug logging removed to reduce spam (state/cycle messages are very frequent)
             local msg = Protocol.decode(line)
             if msg then
-                print("RelayClient: Decoded message - type: " .. (msg.type or "nil") .. ", id: " .. (msg.id or "nil"))
-                if msg.id == self.playerId then
+                -- Skip logging for frequent message types (state snapshots and cycle updates)
+                local msgType = msg.type or ""
+                if msgType ~= "state" and msgType ~= "cycle" and msgType ~= Protocol.MSG.CYCLE_TIME then
+                    print("RelayClient: Decoded message - type: " .. msgType .. ", id: " .. (msg.id or "nil"))
+                end
+                -- Handle server-assigned player ID from join message
+                if msg.type == Protocol.MSG.PLAYER_JOIN and not self.receivedPlayerId then
+                    -- First join message is our own ID assignment from server
+                    self.playerId = msg.id
+                    self.receivedPlayerId = true
+                    print("RelayClient: Received server-assigned player ID: " .. self.playerId)
+                    -- Don't process this as a player_joined event, it's just our ID assignment
+                    -- The state snapshot will have all players including us
+                elseif msg.id == self.playerId then
                     print("RelayClient: Ignoring our own message: " .. (msg.type or "unknown") .. " from " .. (msg.id or "?"))
                 else
                     -- Translate protocol types to match LAN behavior
@@ -164,10 +176,34 @@ function RelayClient:poll()
                     elseif msg.type == Protocol.MSG.PET_MOVE then
                         msg.type = "pet_moved"
                         print("RelayClient: Received PET_MOVE for " .. (msg.id or "?") .. " at (" .. (msg.x or "?") .. ", " .. (msg.y or "?") .. ")")
+                    elseif msg.type == Protocol.MSG.STATE_SNAPSHOT or msg.type == "state" then
+                        msg.type = "state_snapshot"
+                        -- State snapshots are very frequent, logging removed to reduce spam
+                    elseif msg.type == Protocol.MSG.EVENT_BOON_GRANTED then
+                        msg.type = "boon_granted"
+                        print("RelayClient: Received BOON_GRANTED")
+                    elseif msg.type == Protocol.MSG.EVENT_PLAYER_DIED then
+                        msg.type = "player_died"
+                        print("RelayClient: Received PLAYER_DIED")
+                    elseif msg.type == Protocol.MSG.EVENT_BOON_STOLEN then
+                        msg.type = "boon_stolen"
+                        print("RelayClient: Received BOON_STOLEN")
+                    elseif msg.type == Protocol.MSG.CYCLE_TIME then
+                        msg.type = "cycle"
+                        -- Cycle updates are very frequent, logging removed to reduce spam
+                    elseif msg.type == Protocol.MSG.EXTRACTION then
+                        msg.type = "extract"
+                        print("RelayClient: Received EXTRACTION")
+                    elseif msg.type == Protocol.MSG.INPUT_SHOOT or msg.type == Protocol.MSG.INPUT_INTERACT then
+                        -- Ignore our own inputs echoed back
+                        print("RelayClient: Ignoring echoed input: " .. (msg.type or "nil"))
                     else
                         print("RelayClient: Unknown message type: " .. (msg.type or "nil"))
                     end
-                    table.insert(messages, msg)
+                    -- Only add non-input messages (inputs are handled server-side)
+                    if msg.type ~= Protocol.MSG.INPUT_SHOOT and msg.type ~= Protocol.MSG.INPUT_INTERACT then
+                        table.insert(messages, msg)
+                    end
                 end
             else
                 print("RelayClient: Failed to decode message from line: " .. line:sub(1, 100))
@@ -190,20 +226,21 @@ function RelayClient:send(data)
 end
 
 -- Compatible interface with ENet client
-function RelayClient:sendPosition(x, y, direction, skin)
+function RelayClient:sendPosition(x, y, direction, skin, sprinting)
     if not self.connected then
         print("RelayClient: sendPosition called but not connected!")
         return false
     end
-    if not self.paired then
-        print("RelayClient: sendPosition called but not paired yet!")
-        -- Still send, but log it
-    end
+    -- Note: We still send position even if not paired yet (opponent may connect soon)
+    -- This allows smooth movement from the start
     local encoded = Protocol.encode(Protocol.MSG.PLAYER_MOVE, self.playerId or "?", math.floor(x), math.floor(y), direction or "down")
     if skin then
         encoded = encoded .. "|" .. skin
     end
-    print("RelayClient: Sending position - playerId: " .. (self.playerId or "?") .. ", x: " .. math.floor(x) .. ", y: " .. math.floor(y) .. ", dir: " .. (direction or "down") .. ", skin: " .. (skin or "none"))
+    if sprinting then
+        encoded = encoded .. "|1"
+    end
+    -- Position update (logging removed to reduce spam)
     local success = self:send(encoded)
     if not success then
         print("RelayClient: Failed to send position update!")
@@ -228,6 +265,14 @@ function RelayClient:sendMessage(msg)
         encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, self.playerId or "?", msg.x or 400, msg.y or 300)
     elseif msg.type == Protocol.MSG.PLAYER_LEAVE then
         encoded = Protocol.encode(Protocol.MSG.PLAYER_LEAVE, self.playerId or "?")
+    elseif msg.type == Protocol.MSG.INPUT_SHOOT or msg.type == Protocol.MSG.INPUT_INTERACT then
+        -- Game input messages - send the encoded data directly
+        if msg.data and type(msg.data) == "string" then
+            encoded = msg.data
+        else
+            encoded = Protocol.encode(msg.type, self.playerId or "?", msg.angle or msg.data or "")
+        end
+        print("RelayClient: Sending game input: " .. (msg.type or "nil"))
     else
         encoded = Protocol.encode(msg.type, self.playerId or "?", msg.data or "")
     end

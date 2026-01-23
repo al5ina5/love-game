@@ -37,45 +37,9 @@ end
 -- Always try to read .env file for custom API URLs and USE_LOCAL_API
 local env_vars = {}
 
--- Try multiple paths for .env file
-local env_paths = {}
-
--- Add current working directory
-table.insert(env_paths, ".env")
-
--- Add paths relative to LÖVE source
+-- When running from a .love file, love.filesystem is the only way to read files
+-- Try love.filesystem first (works for both .love archives and regular files)
 if love and love.filesystem then
-    local source = love.filesystem.getSource()
-    if source then
-        table.insert(env_paths, source .. "/.env")
-        -- Also try parent directory (in case running from src/)
-        table.insert(env_paths, source .. "/../.env")
-    end
-end
-
--- Try io.open for each path
-for _, path in ipairs(env_paths) do
-    local env_file = io.open(path, "r")
-    if env_file then
-        print("Constants: Trying to read .env from: " .. path)
-        local content = env_file:read("*all")
-        env_file:close()
-        if content then
-            env_vars = parseEnvContent(content)
-            -- Only override env_value if it wasn't set via environment variable
-            if not env_value and env_vars["USE_LOCAL_API"] then
-                env_value = env_vars["USE_LOCAL_API"]
-                print("Constants: Found USE_LOCAL_API in .env file: " .. tostring(env_value) .. " (from " .. path .. ")")
-            end
-            if next(env_vars) then
-                break
-            end
-        end
-    end
-end
-
--- Try love.filesystem as fallback
-if not next(env_vars) and love and love.filesystem then
     local success, contents = pcall(function()
         if love.filesystem.getInfo(".env") then
             return love.filesystem.read(".env")
@@ -88,6 +52,40 @@ if not next(env_vars) and love and love.filesystem then
         if not env_value and env_vars["USE_LOCAL_API"] then
             env_value = env_vars["USE_LOCAL_API"]
             print("Constants: Found USE_LOCAL_API in .env file (via love.filesystem): " .. tostring(env_value))
+        end
+    end
+end
+
+-- Fallback: Try io.open for development (when not running from .love file)
+if not next(env_vars) then
+    local env_paths = {}
+    table.insert(env_paths, ".env")
+    
+    if love and love.filesystem then
+        local source = love.filesystem.getSource()
+        if source then
+            table.insert(env_paths, source .. "/.env")
+            table.insert(env_paths, source .. "/../.env")
+        end
+    end
+    
+    for _, path in ipairs(env_paths) do
+        local env_file = io.open(path, "r")
+        if env_file then
+            print("Constants: Trying to read .env from: " .. path)
+            local content = env_file:read("*all")
+            env_file:close()
+            if content then
+                env_vars = parseEnvContent(content)
+                -- Only override env_value if it wasn't set via environment variable
+                if not env_value and env_vars["USE_LOCAL_API"] then
+                    env_value = env_vars["USE_LOCAL_API"]
+                    print("Constants: Found USE_LOCAL_API in .env file: " .. tostring(env_value) .. " (from " .. path .. ")")
+                end
+                if next(env_vars) then
+                    break
+                end
+            end
         end
     end
 end
@@ -134,5 +132,12 @@ else
     print("  Relay: " .. Constants.RELAY_HOST .. ":" .. Constants.RELAY_PORT)
     print("========================================")
 end
+
+-- Desaturation effect: Set to false to disable timer-based desaturation for development
+-- When enabled, the game will gradually lose saturation as the timer approaches 0
+Constants.ENABLE_DESATURATION_EFFECT = false
+
+-- Dev mode: show debug visuals (e.g. faint lines from player to NPCs for distance)
+Constants.DEV_MODE = true
 
 return Constants

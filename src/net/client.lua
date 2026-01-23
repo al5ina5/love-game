@@ -53,7 +53,7 @@ function Client:disconnect()
     print("Disconnected")
 end
 
-function Client:sendPosition(x, y, direction, skin)
+function Client:sendPosition(x, y, direction, skin, sprinting)
     if not self.connected or not self.server then return end
     
     local now = love.timer.getTime()
@@ -69,6 +69,9 @@ function Client:sendPosition(x, y, direction, skin)
     )
     if skin then
         data = data .. "|" .. skin
+    end
+    if sprinting then
+        data = data .. "|1"
     end
     
     self.server:send(data, 0, "unreliable")
@@ -89,7 +92,23 @@ function Client:sendPetPosition(playerId, x, y, monster)
 end
 
 function Client:sendMessage(msg)
-    -- Not used in walking simulator
+    if not self.connected or not self.server then return false end
+    
+    -- If msg has a data field with encoded string, send it directly
+    if msg.data and type(msg.data) == "string" then
+        self.server:send(msg.data, 0, "reliable")
+        return true
+    end
+    
+    -- Otherwise encode the message
+    if msg.type then
+        local Protocol = require("src.net.protocol")
+        local encoded = Protocol.encode(msg.type, msg.id or self.playerId or "?", unpack(msg.data or {}))
+        self.server:send(encoded, 0, "reliable")
+        return true
+    end
+    
+    return false
 end
 
 function Client:poll()
@@ -108,6 +127,9 @@ function Client:poll()
             if msg.type == Protocol.MSG.PLAYER_JOIN and not self.playerId then
                 self.playerId = msg.id
                 print("Our player ID: " .. self.playerId)
+                -- Still add the message so game can handle it
+                msg.type = "player_joined"
+                table.insert(messages, msg)
             else
                 -- Convert protocol types to game types
                 if msg.type == Protocol.MSG.PLAYER_JOIN then
@@ -118,6 +140,21 @@ function Client:poll()
                     msg.type = "player_left"
                 elseif msg.type == Protocol.MSG.PET_MOVE then
                     msg.type = "pet_moved"
+                elseif msg.type == Protocol.MSG.STATE_SNAPSHOT then
+                    msg.type = "state_snapshot"
+                elseif msg.type == Protocol.MSG.EVENT_BOON_GRANTED then
+                    msg.type = "boon_granted"
+                elseif msg.type == Protocol.MSG.EVENT_PLAYER_DIED then
+                    msg.type = "player_died"
+                elseif msg.type == Protocol.MSG.EVENT_BOON_STOLEN then
+                    msg.type = "boon_stolen"
+                elseif msg.type == Protocol.MSG.EVENT_CHEST_OPENED then
+                    msg.type = "chest_opened"
+                elseif msg.type == Protocol.MSG.EVENT_PROJECTILE then
+                    msg.type = "projectile"
+                elseif msg.type == Protocol.MSG.INPUT_SHOOT or msg.type == Protocol.MSG.INPUT_INTERACT then
+                    -- Ignore our own inputs echoed back
+                    return messages
                 end
                 table.insert(messages, msg)
             end

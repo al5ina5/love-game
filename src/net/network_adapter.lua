@@ -55,8 +55,13 @@ function NetworkAdapter:isConnected()
     end
 end
 
+-- Check if server logic is available (for host)
+function NetworkAdapter:hasServerLogic()
+    return self.type == NetworkAdapter.TYPE.LAN and self.server and self.server.serverLogic ~= nil
+end
+
 -- Send position update (for walking simulator)
-function NetworkAdapter:sendPosition(x, y, direction, skin)
+function NetworkAdapter:sendPosition(x, y, direction, skin, sprinting)
     if not self:isConnected() then 
         print("NetworkAdapter: sendPosition called but not connected (type: " .. (self.type or "nil") .. ")")
         return false 
@@ -64,14 +69,14 @@ function NetworkAdapter:sendPosition(x, y, direction, skin)
     
     if self.type == NetworkAdapter.TYPE.LAN then
         if self.server then
-            self.server:sendPosition(x, y, direction, skin)
+            self.server:sendPosition(x, y, direction, skin, sprinting)
         elseif self.client then
-            self.client:sendPosition(x, y, direction, skin)
+            self.client:sendPosition(x, y, direction, skin, sprinting)
         end
     else
         if self.client then
             print("NetworkAdapter: Forwarding sendPosition to " .. self.type .. " client")
-            self.client:sendPosition(x, y, direction, skin)
+            self.client:sendPosition(x, y, direction, skin, sprinting)
         else
             print("NetworkAdapter: sendPosition called but no client available (type: " .. self.type .. ")")
         end
@@ -113,6 +118,99 @@ function NetworkAdapter:sendMessage(msg)
         end
     end
     return true
+end
+
+-- Send game input (shoot, interact)
+function NetworkAdapter:sendGameInput(inputType, data)
+    -- For host, we're always "connected" (server is local)
+    if self.type == NetworkAdapter.TYPE.LAN and self.server then
+        -- Host can always send inputs
+    elseif not self:isConnected() then 
+        print("NetworkAdapter:sendGameInput - Not connected! (type: " .. (self.type or "nil") .. ")")
+        return false 
+    end
+    
+    local Protocol = require("src.net.protocol")
+    local playerId = self:getPlayerId()
+    
+    if inputType == "shoot" then
+        local angle = data.angle or 0
+        local encoded = Protocol.encode(Protocol.MSG.INPUT_SHOOT, playerId or "?", angle)
+        
+        if self.type == NetworkAdapter.TYPE.LAN then
+            if self.client then
+                return self.client:sendMessage({ type = Protocol.MSG.INPUT_SHOOT, data = encoded })
+            elseif self.server then
+                -- Host sends directly to server logic
+                if self.server.serverLogic then
+                    print("NetworkAdapter: Queuing shoot input for host")
+                    print("  playerId: " .. (playerId or "host"))
+                    print("  angle: " .. angle)
+                    print("  serverLogic exists: " .. tostring(self.server.serverLogic ~= nil))
+                    self.server.serverLogic:queueInput({
+                        type = Protocol.MSG.INPUT_SHOOT,
+                        id = playerId or "host",
+                        angle = angle
+                    })
+                    print("NetworkAdapter: Input queued, queue size: " .. #self.server.serverLogic.inputQueue)
+                    return true
+                else
+                    print("NetworkAdapter: ERROR - No serverLogic on server!")
+                    print("  server exists: " .. tostring(self.server ~= nil))
+                    print("  server.gameMode: " .. (self.server.gameMode or "nil"))
+                end
+            end
+        else
+            -- Online/Relay - for host, process locally AND send to relay
+            if self.type == NetworkAdapter.TYPE.RELAY and self:isHost() then
+                -- Host in relay mode needs local server logic
+                -- Check if we have a local server with serverLogic
+                if self.localServer and self.localServer.serverLogic then
+                    print("NetworkAdapter: Queuing shoot input for relay host (local processing)")
+                    self.localServer.serverLogic:queueInput({
+                        type = Protocol.MSG.INPUT_SHOOT,
+                        id = playerId or "host",
+                        angle = angle
+                    })
+                    -- Also send to relay for other clients
+                    if self.client then
+                        self.client:sendMessage({ type = Protocol.MSG.INPUT_SHOOT, data = encoded })
+                    end
+                    return true
+                else
+                    print("NetworkAdapter: WARNING - Relay host has no local serverLogic!")
+                end
+            end
+            -- Online/Relay client - send via client
+            if self.client then
+                return self.client:sendMessage({ type = Protocol.MSG.INPUT_SHOOT, data = encoded })
+            end
+        end
+    elseif inputType == "interact" then
+        local encoded = Protocol.encode(Protocol.MSG.INPUT_INTERACT, playerId or "?")
+        
+        if self.type == NetworkAdapter.TYPE.LAN then
+            if self.client then
+                return self.client:sendMessage({ type = Protocol.MSG.INPUT_INTERACT, data = encoded })
+            elseif self.server then
+                -- Host sends directly to server logic
+                if self.server.serverLogic then
+                    self.server.serverLogic:queueInput({
+                        type = Protocol.MSG.INPUT_INTERACT,
+                        id = playerId or "host"
+                    })
+                    return true
+                end
+            end
+        else
+            -- Online/Relay - send via client
+            if self.client then
+                return self.client:sendMessage({ type = Protocol.MSG.INPUT_INTERACT, data = encoded })
+            end
+        end
+    end
+    
+    return false
 end
 
 -- Poll for messages

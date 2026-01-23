@@ -24,7 +24,8 @@ function ConnectionManager.becomeHost(game)
     if game.network then game.network:disconnect() end
     game.remotePlayers = {}
     game.isHost = true
-    game.network = Server:new(12345)
+    -- Enable Boon Snatch game mode
+    game.network = Server:new(12345, "boonsnatch")
 
     if not game.network then
         print("Connection: Failed to create server")
@@ -35,6 +36,14 @@ function ConnectionManager.becomeHost(game)
     game.network = NetworkAdapter:createLAN(nil, game.network)
     game.discovery:startAdvertising("Pixel Raiders", 12345, 10)
     game.playerId = "host"
+    
+    -- Create NPCs and animals if not already created (host generates world)
+    if (#game.npcs or 0) == 0 then
+        game:createNPCs()
+    end
+    if (#game.animals or 0) == 0 then
+        game:createAnimalGroups()
+    end
 end
 
 function ConnectionManager.stopHosting(game)
@@ -181,6 +190,22 @@ function ConnectionManager.hostOnline(isPublic, game)
         game.network = NetworkAdapter:createRelay(relayClient)
         print("Connection: Network adapter created with relay client")
         
+        -- For RELAY mode host, create local server with serverLogic (like LAN mode)
+        -- The relay is only for forwarding messages, but host runs game logic locally
+        local Server = require('src.net.server')
+        local localServer = Server:new(nil, "boonsnatch")  -- nil port = don't listen, just game logic
+        if localServer and localServer.serverLogic then
+            game.network.localServer = localServer
+            -- Add host player to game state
+            if game.player then
+                localServer.serverLogic:addPlayer("host", game.player.x, game.player.y)
+                localServer.serverLogic:spawnInitialChests(10)
+                print("Connection: Created local serverLogic for relay host")
+            end
+        else
+            print("Connection: WARNING - Failed to create local serverLogic for relay host!")
+        end
+        
         -- Host will send PLAYER_JOIN when PAIRED is received (handled in relay_client.lua)
         -- Don't send immediately - wait for client to connect and receive PAIRED
     else
@@ -191,6 +216,11 @@ function ConnectionManager.hostOnline(isPublic, game)
     game.isHost = true
     game.playerId = "host"
     game.connectionManager.onlineClient = onlineClient -- Keep for heartbeat
+    
+    -- For relay server (online mode), NPCs are server-authoritative
+    -- Server will send NPC data to all clients including the host
+    -- Only create NPCs locally if not using relay server
+    -- Note: Server creates NPCs in game_server.ts, so we don't create them here
     
     -- Store room code but hide menu so player can play immediately
     if game.menu then

@@ -6,10 +6,24 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const net_1 = __importDefault(require("net"));
+const game_server_1 = require("./game_server");
 // --- Configuration ---
-// Railway: HTTP on PORT (8080), TCP on 12346 (Railway TCP proxy forwards to this)
-const HTTP_PORT = parseInt(process.env.PORT || '3000', 10);
-const TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
+// Railway: HTTP on PORT (should be 8080), TCP on 12346 (Railway TCP proxy forwards to this)
+// If Railway incorrectly sets PORT=12346, use 12346 for TCP and 8080 for HTTP
+const RAILWAY_PORT = parseInt(process.env.PORT || '3000', 10);
+const RAILWAY_TCP_PORT = parseInt(process.env.TCP_PORT || '12346', 10);
+let HTTP_PORT = RAILWAY_PORT;
+let TCP_PORT = RAILWAY_TCP_PORT;
+// Handle Railway quirk: if PORT is set to TCP proxy port (12346), use it for TCP and default HTTP port for HTTP
+if (RAILWAY_PORT === 12346 && !process.env.TCP_PORT) {
+    HTTP_PORT = 8080; // Railway HTTP should be on 8080
+    TCP_PORT = 12346; // Railway TCP proxy forwards to 12346
+    console.log(`[CONFIG] Detected PORT=12346, using HTTP_PORT=${HTTP_PORT}, TCP_PORT=${TCP_PORT}`);
+}
+else {
+    HTTP_PORT = RAILWAY_PORT;
+    TCP_PORT = RAILWAY_TCP_PORT;
+}
 // --- In-Memory State ---
 const rooms = new Map();
 const roomSockets = new Map();
@@ -31,7 +45,7 @@ app.post('/api/create-room', (req, res) => {
         hostName,
         isPublic: !!isPublic,
         players: 1,
-        maxPlayers: 2,
+        maxPlayers: 10,
         createdAt: Date.now(),
         lastHeartbeat: Date.now(),
         gameStarted: false,
@@ -44,8 +58,8 @@ app.get('/api/list-rooms', (_req, res) => {
     const now = Date.now();
     const publicRooms = Array.from(rooms.values()).filter(r => r.isPublic &&
         r.players < r.maxPlayers &&
-        !r.gameStarted && // Don't show rooms where game already started
         (now - r.lastHeartbeat) < 60000 // Only show active rooms
+    // Game is always running, so we don't filter by gameStarted
     );
     res.json({ rooms: publicRooms });
 });
@@ -56,8 +70,7 @@ app.post('/api/join-room', (req, res) => {
         return res.status(404).json({ error: 'Room not found' });
     if (room.players >= room.maxPlayers)
         return res.status(400).json({ error: 'Room full' });
-    if (room.gameStarted)
-        return res.status(400).json({ error: 'Game already in progress' });
+    // Game is always running, so we don't check gameStarted
     res.json({ success: true });
 });
 app.post('/api/heartbeat', (req, res) => {
@@ -92,52 +105,92 @@ const tcpServer = net_1.default.createServer((socket) => {
                 const code = line.split(':')[1].toUpperCase();
                 currentRoomCode = code;
                 const room = rooms.get(code);
-                // Reject if game already started
-                if (room && room.gameStarted) {
-                    socket.write('ERROR:Game already in progress\n');
-                    socket.end();
-                    continue;
-                }
+                // Game is always running, so we don't reject based on gameStarted
+                // Players can join at any time during the cycle
                 let roomData = roomSockets.get(code);
                 if (!roomData) {
-                    roomData = { sockets: [socket], gameStarted: false };
+                    // Create new room with game server (always running)
+                    const gameServer = new game_server_1.GameServer();
+                    roomData = {
+                        sockets: new Map(),
+                        gameStarted: true, // Game always running
+                        gameServer,
+                        lastStateBroadcast: Date.now(),
+                        stateBroadcastInterval: 50, // 20 times per second (50ms)
+                    };
                     roomSockets.set(code, roomData);
-                    console.log(`[TCP] Player joined room ${code} (1st player)`);
+                    console.log(`[TCP] Room ${code} created with game server (always running)`);
                 }
-                else {
-                    if (roomData.sockets.length < 2) {
-                        roomData.sockets.push(socket);
-                        if (room)
-                            room.players = roomData.sockets.length;
-                        console.log(`[TCP] Player joined room ${code} (2nd player)`);
-                        // Notify both players they are paired
-                        roomData.sockets.forEach(s => s.write('PAIRED\n'));
-                    }
-                    else {
-                        socket.write('ERROR:Room full\n');
-                        socket.end();
-                    }
+                // Generate player ID
+                const playerId = `p${roomData.sockets.size + 1}`;
+                roomData.sockets.set(socket, playerId);
+                // Add player to game server
+                roomData.gameServer.addPlayer(playerId);
+                // Send player their ID and initial state
+                socket.write(`join|${playerId}|800|600\n`); // Spawn at center
+                const stateJson = roomData.gameServer.getStateSnapshot();
+                socket.write(`state|${stateJson}\n`);
+                // Update room player count
+                if (room) {
+                    room.players = roomData.sockets.size;
+                }
+                console.log(`[TCP] Player ${playerId} joined room ${code} (${roomData.sockets.size} players)`);
+                // Notify all players they are paired when 2+ players are present
+                if (roomData.sockets.size >= 2) {
+                    roomData.sockets.forEach((_, s) => s.write('PAIRED\n'));
                 }
                 continue;
             }
-            // Track game start (countdown message)
-            if (line.includes('|scd|') || line.startsWith('scd|')) {
-                const roomData = roomSockets.get(currentRoomCode || '');
-                const room = rooms.get(currentRoomCode || '');
-                if (roomData)
-                    roomData.gameStarted = true;
-                if (room)
-                    room.gameStarted = true;
-                console.log(`[TCP] Game started in room ${currentRoomCode}`);
-            }
-            // Forward data to others in the same room
+            // Handle game messages server-authoritatively
             if (currentRoomCode) {
                 const roomData = roomSockets.get(currentRoomCode);
                 if (roomData) {
-                    roomData.sockets.forEach(s => {
-                        if (s !== socket)
-                            s.write(line + '\n');
-                    });
+                    const playerId = roomData.sockets.get(socket);
+                    // Parse message
+                    const parts = line.split('|');
+                    const msgType = parts[0];
+                    if (msgType === 'move' && playerId) {
+                        // Player position update - server validates and updates
+                        const x = parseFloat(parts[2]) || 0;
+                        const y = parseFloat(parts[3]) || 0;
+                        const direction = parts[4] || 'down';
+                        const sprinting = parts[6] === '1' || parts[6] === 'true';
+                        // Server updates authoritative position
+                        roomData.gameServer.updatePlayerPosition(playerId, x, y, direction, sprinting);
+                        // Broadcast to other players
+                        roomData.sockets.forEach((pid, s) => {
+                            if (s !== socket) {
+                                s.write(line + '\n');
+                            }
+                        });
+                    }
+                    else if (msgType === 'shoot' && playerId) {
+                        // Shoot input - server handles it
+                        const angle = parseFloat(parts[2]) || 0;
+                        roomData.gameServer.handleShoot(playerId, angle);
+                        // Don't echo back to sender, state will be broadcast
+                    }
+                    else if (msgType === 'interact' && playerId) {
+                        // Interact input - server handles it
+                        roomData.gameServer.handleInteract(playerId);
+                        // Don't echo back to sender, state will be broadcast
+                    }
+                    else if (msgType === 'pet_move') {
+                        // Pet position - just relay (not authoritative)
+                        roomData.sockets.forEach((_, s) => {
+                            if (s !== socket) {
+                                s.write(line + '\n');
+                            }
+                        });
+                    }
+                    else {
+                        // Unknown message type - just relay
+                        roomData.sockets.forEach((_, s) => {
+                            if (s !== socket) {
+                                s.write(line + '\n');
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -149,26 +202,28 @@ const tcpServer = net_1.default.createServer((socket) => {
         if (currentRoomCode) {
             const roomData = roomSockets.get(currentRoomCode);
             if (roomData) {
-                roomData.sockets = roomData.sockets.filter(s => s !== socket);
+                // Remove player from game server
+                const playerId = roomData.sockets.get(socket);
+                roomData.sockets.delete(socket); // Remove socket from map
+                if (playerId) {
+                    roomData.gameServer.removePlayer(playerId);
+                }
+                // Update room player count
                 const room = rooms.get(currentRoomCode);
                 if (room)
-                    room.players = roomData.sockets.length;
-                if (roomData.sockets.length === 0) {
-                    // No players left - delete the room entirely
-                    roomSockets.delete(currentRoomCode);
-                    rooms.delete(currentRoomCode);
-                    console.log(`[TCP] Room ${currentRoomCode} deleted (empty)`);
+                    room.players = roomData.sockets.size;
+                if (roomData.sockets.size === 0) {
+                    // No players left - but keep room and game server running!
+                    // Game cycle continues even with no players
+                    console.log(`[TCP] Room ${currentRoomCode} empty but game server continues running`);
                 }
                 else {
                     // Notify remaining player(s) that opponent left
-                    roomData.sockets.forEach(s => s.write('OPPONENT_LEFT\n'));
-                    console.log(`[TCP] Player left room ${currentRoomCode}, notified remaining players`);
-                    // If game was in progress, reset game state so host can rematch or continue solo
-                    if (roomData.gameStarted) {
-                        roomData.gameStarted = false;
-                        if (room)
-                            room.gameStarted = false;
-                    }
+                    roomData.sockets.forEach((_, s) => s.write('OPPONENT_LEFT\n'));
+                    console.log(`[TCP] Player ${playerId} left room ${currentRoomCode}, ${roomData.sockets.size} players remaining`);
+                    // Update room player count
+                    if (room)
+                        room.players = roomData.sockets.size;
                 }
             }
         }
@@ -182,3 +237,29 @@ const tcpServer = net_1.default.createServer((socket) => {
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
     console.log(`[TCP] Relay listening on port ${TCP_PORT}`);
 });
+// State broadcast loop - send game state to all clients periodically
+setInterval(() => {
+    const now = Date.now();
+    for (const [roomCode, roomData] of roomSockets.entries()) {
+        // Check if it's time to broadcast state
+        if (now - roomData.lastStateBroadcast >= roomData.stateBroadcastInterval) {
+            const stateJson = roomData.gameServer.getStateSnapshot();
+            const cycleTime = roomData.gameServer.getCycleTimeRemaining();
+            const cycleDuration = roomData.gameServer.getCycleDuration();
+            // Broadcast state to all players in room
+            roomData.sockets.forEach((playerId, socket) => {
+                // Send state snapshot
+                socket.write(`state|${stateJson}\n`);
+                // Send cycle time update
+                socket.write(`cycle|${cycleTime}|${cycleDuration}\n`);
+            });
+            roomData.lastStateBroadcast = now;
+        }
+    }
+}, 50); // Check every 50ms (20 times per second)
+// Cleanup: Periodically remove rooms that have been empty for too long (optional)
+// For now, we keep rooms running indefinitely as requested
+setInterval(() => {
+    // Could add logic here to clean up rooms after X hours of being empty
+    // For now, rooms persist forever as requested
+}, 60000); // Check every minute

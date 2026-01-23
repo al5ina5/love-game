@@ -1,0 +1,78 @@
+-- src/game/remote_entity_factory.lua
+-- Factory for creating remote players and pets
+
+local RemotePlayer = require('src.entities.remote_player')
+local Pet = require('src.entities.pet')
+
+local RemoteEntityFactory = {}
+
+function RemoteEntityFactory.createOrUpdateRemotePlayer(game, playerId, posX, posY, skin, direction, sprinting)
+    if not playerId or playerId == game.playerId then
+        return nil
+    end
+    
+    local remote = game.remotePlayers[playerId]
+    if not remote then
+        remote = RemotePlayer:new(posX, posY, skin)
+        game.remotePlayers[playerId] = remote
+        print("Created remote player: " .. playerId .. " at (" .. posX .. ", " .. posY .. ")")
+    else
+        remote:setTargetPosition(posX, posY, direction or "down", sprinting)
+        if skin then
+            remote:setSprite(skin)
+        end
+    end
+    
+    RemoteEntityFactory.ensureRemotePet(game, playerId, remote)
+    
+    return remote
+end
+
+function RemoteEntityFactory.ensureRemotePet(game, playerId, owner)
+    if not game.remotePets then
+        game.remotePets = {}
+    end
+    
+    if not game.remotePets[playerId] and owner then
+        game.remotePets[playerId] = Pet:new(owner, true, nil)
+    end
+end
+
+function RemoteEntityFactory.updateRemotePet(game, playerId, x, y, monster)
+    if not playerId or playerId == game.playerId then
+        return
+    end
+    
+    if not game.remotePets then
+        game.remotePets = {}
+    end
+    
+    local remotePet = game.remotePets[playerId]
+    if remotePet then
+        if x and y then
+            remotePet.targetX = x
+            remotePet.targetY = y
+        end
+        if monster then
+            remotePet:setMonster(monster)
+        end
+    else
+        local owner = game.remotePlayers[playerId]
+        if owner then
+            game.remotePets[playerId] = Pet:new(owner, true, monster)
+            game.remotePets[playerId].targetX = x or owner.x
+            game.remotePets[playerId].targetY = y or owner.y
+        end
+    end
+end
+
+function RemoteEntityFactory.removeRemotePlayer(game, playerId)
+    if playerId then
+        game.remotePlayers[playerId] = nil
+        if game.remotePets then
+            game.remotePets[playerId] = nil
+        end
+    end
+end
+
+return RemoteEntityFactory

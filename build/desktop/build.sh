@@ -204,10 +204,24 @@ build_love() {
     mkdir -p "$BUILD_DIR"
     cd "$PROJECT_ROOT"
     
+    # Create a production .env file to ensure we use the real server
+    # This ensures USE_LOCAL_API is not set to true
+    local temp_env="$BUILD_DIR/.env.production"
+    echo "# Production build - using real server" > "$temp_env"
+    echo "USE_LOCAL_API=false" >> "$temp_env"
+    
     # Remove old .love file if exists
     rm -f "$BUILD_DIR/${GAME_NAME}.love"
     
     # Create .love file (it's just a zip)
+    # First, temporarily copy the production .env to the project root
+    local original_env_exists=false
+    if [ -f ".env" ]; then
+        original_env_exists=true
+        mv ".env" ".env.backup"
+    fi
+    cp "$temp_env" ".env"
+    
     zip -9 -r "$BUILD_DIR/${GAME_NAME}.love" . \
         -x "*.git*" \
         -x "dist/*" \
@@ -216,13 +230,23 @@ build_love() {
         -x "relay/*" \
         -x "docs/*" \
         -x "Dockerfile" \
-        -x ".env" \
         -x "*.md" \
         -x "raw_udp_test.lua" \
         -x "debug/*" \
+        -x ".env.backup" \
         > /dev/null 2>&1
     
+    # Restore original .env if it existed
+    rm -f ".env"
+    if [ "$original_env_exists" = true ]; then
+        mv ".env.backup" ".env"
+    fi
+    
+    # Clean up temp file
+    rm -f "$temp_env"
+    
     print_success "Created ${GAME_NAME}.love ($(du -h "$BUILD_DIR/${GAME_NAME}.love" | cut -f1))"
+    print_success "Build configured to use production server"
 }
 
 # Build Windows version

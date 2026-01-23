@@ -1,11 +1,14 @@
 -- src/entities/remote_player.lua
 -- Animated sprite for remote players in walking simulator
 
+local BaseEntity = require('src.entities.base_entity')
+
 local RemotePlayer = {}
 RemotePlayer.__index = RemotePlayer
+setmetatable(RemotePlayer, {__index = BaseEntity})
 
 function RemotePlayer:new(x, y, spriteName)
-    local self = setmetatable({}, RemotePlayer)
+    local self = setmetatable(BaseEntity:new(), RemotePlayer)
     
     self.x = x or 0
     self.y = y or 0
@@ -13,20 +16,9 @@ function RemotePlayer:new(x, y, spriteName)
     self.targetY = self.y
     self.lerpSpeed = 10
     
-    self.direction = "down"
-    self.moving = false
-    self.animTimer = 0
-    self.animFrame = 1
-    self.frameCount = 4
-    self.frameTime = 0.15
-    
     -- Load sprite sheet (will be set from network message or default)
     self.spriteName = spriteName or "Elf Bladedancer"  -- Default fallback
     self:setSprite(self.spriteName)
-    
-    self.width = 16
-    self.height = 16
-    self.originY = 12
     
     return self
 end
@@ -37,22 +29,10 @@ function RemotePlayer:setSprite(spriteName)
     end
     self.spriteName = spriteName
     local spritePath = "assets/img/sprites/humans/" .. spriteName .. "/" .. spriteName:gsub(" ", "") .. ".png"
-    self.spriteSheet = love.graphics.newImage(spritePath)
-    self.frameWidth = 16
-    self.frameHeight = 16
-    
-    -- Create quads for each frame
-    self.quads = {}
-    for i = 0, self.frameCount - 1 do
-        self.quads[i + 1] = love.graphics.newQuad(
-            i * self.frameWidth, 0,
-            self.frameWidth, self.frameHeight,
-            self.spriteSheet:getDimensions()
-        )
-    end
+    self:loadSprite(spritePath)
 end
 
-function RemotePlayer:setTargetPosition(x, y, dir)
+function RemotePlayer:setTargetPosition(x, y, dir, isSprinting)
     local dx = x - self.targetX
     local dy = y - self.targetY
     
@@ -68,6 +48,9 @@ function RemotePlayer:setTargetPosition(x, y, dir)
     
     self.targetX = x
     self.targetY = y
+    if isSprinting ~= nil then
+        self.isSprinting = isSprinting
+    end
 end
 
 function RemotePlayer:update(dt)
@@ -80,47 +63,8 @@ function RemotePlayer:update(dt)
     local distSq = (self.targetX - self.x)^2 + (self.targetY - self.y)^2
     self.moving = distSq > 0.5
     
-    -- Animation
-    if self.moving then
-        self.animTimer = self.animTimer + dt
-        if self.animTimer >= self.frameTime then
-            self.animTimer = self.animTimer - self.frameTime
-            self.animFrame = (self.animFrame % self.frameCount) + 1
-        end
-    else
-        self.animTimer = 0
-        self.animFrame = 1
-    end
-end
-
-function RemotePlayer:draw()
-    -- Round positions to pixels to prevent blur
-    local drawX = math.floor(self.x + 0.5)
-    local drawY = math.floor(self.y + 0.5)
-    
-    -- Draw shadow
-    love.graphics.setColor(0, 0, 0, 0.3)
-    love.graphics.ellipse("fill", drawX + 8, drawY + 14, 6, 3)
-    
-    -- Draw sprite
-    love.graphics.setColor(1, 1, 1)
-    
-    -- Flip sprite based on direction
-    local scaleX = 1
-    local offsetX = 0
-    if self.direction == "left" then
-        scaleX = -1
-        offsetX = self.frameWidth
-    end
-    
-    love.graphics.draw(
-        self.spriteSheet,
-        self.quads[self.animFrame],
-        drawX + offsetX,
-        drawY,
-        0,
-        scaleX, 1
-    )
+    -- Update animation using base class method
+    self:updateAnimation(dt, self.moving)
 end
 
 return RemotePlayer
