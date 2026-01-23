@@ -11,6 +11,7 @@
         "dist:mac": "./build/desktop/build.sh macos",
         "dist:clean": "./build/desktop/build.sh clean",
         "deploy": "./deploy.sh",
+        "deploy:prod": "./deploy.sh --prod",
         "tools:collision": "npm run dev --prefix tools/collision-editor",
         "multi": "/Applications/love.app/Contents/MacOS/love . & /Applications/love.app/Contents/MacOS/love ."
     },

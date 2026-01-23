@@ -40,6 +40,7 @@ interface RoomData {
   gameServer: GameServer;
   lastStateBroadcast: number;
   stateBroadcastInterval: number; // milliseconds
+  nextPlayerId: number;
 }
 
 // --- In-Memory State ---
@@ -174,13 +175,14 @@ const tcpServer = net.createServer((socket: net.Socket) => {
             gameServer,
             lastStateBroadcast: Date.now(),
             stateBroadcastInterval: 50, // 20 times per second (50ms)
+            nextPlayerId: 1,
           };
           roomSockets.set(code, roomData);
           console.log(`[TCP] Room ${code} created with game server (always running)`);
         }
 
-        // Generate player ID
-        const playerId = `p${roomData.sockets.size + 1}`;
+        // Generate player ID (monotonic to avoid reuse/collisions)
+        const playerId = `p${roomData.nextPlayerId++}`;
         roomData.sockets.set(socket, playerId);
 
         // Add player to game server (will scatter spawn automatically)
