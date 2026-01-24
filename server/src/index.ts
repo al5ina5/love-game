@@ -371,7 +371,9 @@ setInterval(() => {
 
       // Broadcast state to all players in room
       roomData.sockets.forEach((playerId, socket) => {
-        // Send state snapshot
+        // Send state snapshot (spatial partitioned)
+        const stateJson = roomData.gameServer.getPlayerStateSnapshot(playerId);
+
         socket.write(`state|${stateJson}\n`);
         // Send cycle time update
         socket.write(`cycle|${cycleTime}|${cycleDuration}\n`);

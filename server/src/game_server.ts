@@ -78,6 +78,7 @@ interface GameState {
 import { ChunkManager, ChunkData } from './world/ChunkManager';
 import { WorldGenerator } from './world/WorldGenerator';
 import { AnimalManager } from './world/AnimalManager';
+import { SpatialGrid } from './world/SpatialGrid';
 
 export class GameServer {
   private state: GameState;
@@ -96,8 +97,10 @@ export class GameServer {
 
   private chunkManager: ChunkManager;
   private animalManager: AnimalManager | null = null;
+  private spatialGrid: SpatialGrid;
 
   constructor() {
+    this.spatialGrid = new SpatialGrid(512); // Grid cell size 512px
     this.state = {
       players: {},
       projectiles: {},
@@ -121,32 +124,21 @@ export class GameServer {
     const worldGen = new WorldGenerator(this.chunkManager, 12345); // Fixed seed for now
     worldGen.generate();
 
-    // Create Animals (server-authoritative) - must be after world generation to access waterMap
+    // Create Animals
     this.animalManager = worldGen.getAnimalManager();
     if (this.animalManager) {
       const animals = this.animalManager.getAnimals();
       for (const animalId in animals) {
         const animal = animals[animalId];
-        this.state.animals[animalId] = {
-          id: animal.id,
-          x: animal.x,
-          y: animal.y,
-          spritePath: animal.spritePath,
-          name: animal.name,
-          speed: animal.speed,
-          state: animal.state,
-          direction: animal.direction,
-          groupCenterX: animal.groupCenterX,
-          groupCenterY: animal.groupCenterY,
-          groupRadius: animal.groupRadius,
-        };
+        this.state.animals[animalId] = { ...animal };
+        this.spatialGrid.updateEntity(animalId, animal.x, animal.y);
       }
     }
 
     // Spawn initial chests
     this.spawnInitialChests(10);
 
-    // Create NPCs (server-authoritative)
+    // Create NPCs
     this.createNPCs();
 
     // Start game loop
@@ -215,6 +207,8 @@ export class GameServer {
           this.state.animals[animalId].y = animal.y;
           this.state.animals[animalId].state = animal.state;
           this.state.animals[animalId].direction = animal.direction;
+
+          this.spatialGrid.updateEntity(animalId, animal.x, animal.y);
         }
       }
     }
@@ -329,11 +323,14 @@ export class GameServer {
       extracted: false,
     };
 
+    this.spatialGrid.updateEntity(playerId, spawnX, spawnY);
+
     console.log(`[GameServer] Player ${playerId} added at (${spawnX}, ${spawnY})`);
   }
 
   removePlayer(playerId: string): void {
     delete this.state.players[playerId];
+    this.spatialGrid.removeEntity(playerId);
     console.log(`[GameServer] Player ${playerId} removed`);
   }
 
@@ -349,6 +346,8 @@ export class GameServer {
     if (sprinting !== undefined) {
       player.sprinting = sprinting;
     }
+
+    this.spatialGrid.updateEntity(playerId, player.x, player.y);
   }
 
   handleShoot(playerId: string, angle: number): void {
@@ -525,6 +524,8 @@ export class GameServer {
     player.invulnerable = true;
     player.invulnerableTimer = 3.0; // 3 seconds of invulnerability
     player.extracted = false;
+
+    this.spatialGrid.updateEntity(playerId, player.x, player.y);
   }
 
   private spawnInitialChests(count: number): void {
@@ -691,6 +692,7 @@ export class GameServer {
     // Add NPCs to state
     for (const npc of npcs) {
       this.state.npcs[npc.id] = npc;
+      this.spatialGrid.updateEntity(npc.id, npc.x, npc.y);
     }
 
     console.log(`[GameServer] Created ${npcs.length} NPCs`);
@@ -716,6 +718,58 @@ export class GameServer {
       deadlyEventActive: this.state.deadlyEventActive,
       extractionZones: this.state.extractionZones,
     });
+  }
+
+  getPlayerStateSnapshot(playerId: string): string {
+    const player = this.state.players[playerId];
+    if (!player) return this.getStateSnapshot(); // Fallback if player invalid
+
+    // Get nearby entity IDs from grid (e.g., 2 cells view distance = 1000px radius approx)
+    const nearbyIds = this.spatialGrid.getNearbyEntityIds(player.x, player.y, 2);
+
+    const relevantState: any = {
+      players: {},
+      projectiles: {}, // Projectiles might be fast, maybe redundant spatial check?
+      chests: {}, // Chests are static? No, they open/close. Should add to grid.
+      npcs: {},
+      animals: {},
+      // Globals
+      cycleTimeRemaining: this.state.cycleTimeRemaining,
+      cycleDuration: this.state.cycleDuration,
+      deadlyEventActive: this.state.deadlyEventActive,
+      extractionZones: this.state.extractionZones,
+    };
+
+    // Include self always
+    relevantState.players[playerId] = player;
+
+    // Filter Players
+    for (const pid in this.state.players) {
+      if (nearbyIds.has(pid)) {
+        relevantState.players[pid] = this.state.players[pid];
+      }
+    }
+
+    // Filter NPCs
+    for (const nid in this.state.npcs) {
+      if (nearbyIds.has(nid)) {
+        relevantState.npcs[nid] = this.state.npcs[nid];
+      }
+    }
+
+    // Filter Animals
+    for (const aid in this.state.animals) {
+      if (nearbyIds.has(aid)) {
+        relevantState.animals[aid] = this.state.animals[aid];
+      }
+    }
+
+    // TODO: Projectiles and chests currently NOT in spatial grid, so we send all.
+    // Ideally put them in grid too. For now sending all is safer than invisible bullets.
+    relevantState.projectiles = this.state.projectiles;
+    relevantState.chests = this.state.chests;
+
+    return JSON.stringify(relevantState);
   }
 
   getCycleTimeRemaining(): number {

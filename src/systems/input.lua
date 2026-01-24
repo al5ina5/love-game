@@ -115,9 +115,7 @@ function Input:getMovementVector()
                       love.keyboard.isDown("up") or love.keyboard.isDown("down") or
                       love.keyboard.isDown("a") or love.keyboard.isDown("d") or
                       love.keyboard.isDown("w") or love.keyboard.isDown("s")
-    if anyPressed then
-        print("Input: Movement keys detected")
-    end
+
 
     -- Keyboard support
     if self:isDown("left") or self:isDown("a") then dx = dx - 1 end

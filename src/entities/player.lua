@@ -53,10 +53,7 @@ function Player:update(dt)
     -- Get movement vector from keyboard or gamepad
     local dx, dy = Input:getMovementVector()
 
-    -- Debug: Check if input is being detected
-    if dx ~= 0 or dy ~= 0 then
-        print(string.format("Player: Input detected - dx=%.2f, dy=%.2f", dx, dy))
-    end
+
 
     -- Check for sprint (shift key or gamepad trigger/shoulder)
     local isSprinting = Input:isSprintDown()
@@ -77,10 +74,7 @@ function Player:update(dt)
     self.x = self.x + dx * currentSpeed * dt
     self.y = self.y + dy * currentSpeed * dt
 
-    -- Debug: Check if position actually changed
-    if self.x ~= oldX or self.y ~= oldY then
-        print(string.format("Player: Position changed from (%.1f,%.1f) to (%.1f,%.1f)", oldX, oldY, self.x, self.y))
-    end
+
 
     -- Keep prediction state in sync for when we re-enable it
     self.predictedX = self.x

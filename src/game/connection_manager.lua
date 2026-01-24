@@ -274,7 +274,10 @@ function ConnectionManager.updateOnline(dt, game)
                 if localServer and localServer.serverLogic then
                     game.network.localServer = localServer
                     if game.player then
-                        localServer.serverLogic:addPlayer("host", game.player.x, game.player.y)
+                        -- Use game.playerId (assigned by relay, e.g. "p1") instead of "host"
+                        -- This prevents ghost players where client is "p1" but server has "host"
+                        local id = game.playerId or "host"
+                        localServer.serverLogic:addPlayer(id, game.player.x, game.player.y)
                         localServer.serverLogic:spawnInitialChests(10)
                         localServer.serverLogic:spawnNPCs()
                         localServer.serverLogic:spawnAnimals()
