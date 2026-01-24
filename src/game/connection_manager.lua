@@ -163,6 +163,10 @@ function ConnectionManager.hostOnlineAsync(isPublic, game, callback)
         game.network = NetworkAdapter:createRelay(relayClient)
         game.connectionManager.onlineClient = onlineClient
         
+        if game.world then
+            game.world:clearChunks()
+        end
+        
         if game.menu then
             game.menu.onlineRoomCode = roomCode
             game.menu:hide()
@@ -203,6 +207,10 @@ function ConnectionManager.joinOnlineAsync(roomCode, game, callback)
         game.connectionManager.onlineClient = onlineClient
 
         -- PLAYER_JOIN will be sent in updateOnline once relay.connected is true
+        
+        if game.world then
+            game.world:clearChunks()
+        end
         
         if game.menu then
             game.menu:hide()

@@ -1,10 +1,7 @@
 -- src/world/world.lua
 -- World management: tiles, rocks, collision detection
 
-local Protocol = require('src.net.protocol')
-local NetworkAdapter = require('src.net.network_adapter')
-local RoadGenerator = require('src.world.road_generator')
-local WaterGenerator = require('src.world.water_generator')
+-- Protocol and Network removed from here to allow clean state
 local Constants = require('src.constants')
 
 local World = {}
@@ -25,6 +22,8 @@ local ROAD_TILES = {
     DEAD_END_W = 117,   -- West dead end (grass LEFT+TOP+BOTTOM)
     CENTER = 130         -- Full dirt center tile
 }
+
+local CHUNK_REQUEST_TIMEOUT = 3.0 -- Retry request after 3 seconds
 
 function World:new(worldWidth, worldHeight)
     local self = setmetatable({}, World)
@@ -47,15 +46,9 @@ function World:new(worldWidth, worldHeight)
     self.rocksImageData = nil
     self.validTileToActual = {}
 
-    -- Roads - simple sparse map: [chunkKey][localTileX][localTileY] = tileID
+    -- Roads and water are now data-driven from server chunks
     self.roads = {}
-    -- Water - sparse map
     self.water = {}
-
-    -- Road generator
-    self.roadGenerator = RoadGenerator:new(self)
-    -- Water generator
-    self.waterGenerator = WaterGenerator:new(self)
 
     -- Chunk Management
     self.loadedChunks = {} -- Track which chunks are loaded [cx,cy] = true
@@ -291,19 +284,40 @@ function World:update(dt, playerX, playerY, network, chunkManager)
             local ty = cy + dy
             local key = tx .. "," .. ty
 
-            if not self.loadedChunks[key] and not self.loadingChunks[key] then
-                -- Request chunk
-                if network.send then
-                    network:send(Protocol.MSG.REQUEST_CHUNK, tx, ty)
-                    self.loadingChunks[key] = true
-                    -- print("Requesting chunk " .. key)
-                else
-                    print("ERROR: network.send is missing! Network object: " .. tostring(network))
-                    -- Print keys of network object to see what it is
-                    for k,v in pairs(network) do print("  " .. k .. ": " .. tostring(v)) end
+            local currentTime = love.timer.getTime()
+            local status = self.loadedChunks[key]
+            local loadingTime = self.loadingChunks[key]
+
+            if not status then 
+                if not loadingTime or (currentTime - loadingTime > CHUNK_REQUEST_TIMEOUT) then
+                    -- Request chunk (initial or retry)
+                    if network.send then
+                        network:send("chunk", tx, ty) -- Protocol.MSG.REQUEST_CHUNK
+                        self.loadingChunks[key] = currentTime
+                        -- print("Requesting chunk " .. key .. (loadingTime and " (RETRY)" or ""))
+                    end
                 end
             end
         end
+    end
+end
+
+function World:clearChunks()
+    print("World: Clearing all chunks for room join")
+    self.loadedChunks = {}
+    self.loadingChunks = {}
+    self.roads = {}
+    self.water = {}
+    self.trees = {}
+    self.rocks = {}
+    self.spriteBatchDirty = true
+    if self.roadBatches then
+        for _, batch in pairs(self.roadBatches) do batch:release() end
+        self.roadBatches = {}
+    end
+    if self.waterBatches then
+        for _, batch in pairs(self.waterBatches) do batch:release() end
+        self.waterBatches = {}
     end
 end
 
@@ -513,15 +527,26 @@ function World:loadRoadsFromData(encodedData)
 end
 
 function World:isOnRoad(x, y)
-    local tileX = math.floor(x / TILE_SIZE)
-    local tileY = math.floor(y / TILE_SIZE)
-    return self.roadGenerator:getRoadTile(tileX, tileY) ~= nil
+    return self:getRoadTileAtWorldPos(x, y) ~= nil
 end
 
 function World:getRoadTileAtWorldPos(x, y)
     local tileX = math.floor(x / TILE_SIZE)
     local tileY = math.floor(y / TILE_SIZE)
-    return self.roadGenerator:getRoadTile(tileX, tileY)
+    
+    local chunkScale = self.chunkSize / TILE_SIZE
+    local cx = math.floor(tileX / chunkScale)
+    local cy = math.floor(tileY / chunkScale)
+    local key = cx .. "," .. cy
+    
+    if self.roads[key] then
+        local lx = tileX % chunkScale
+        local ly = tileY % chunkScale
+        if self.roads[key][lx] then
+            return self.roads[key][lx][ly]
+        end
+    end
+    return nil
 end
 
 function World:checkRoadCollision(x, y, width, height)
@@ -533,8 +558,17 @@ function World:checkRoadCollision(x, y, width, height)
 
     for tileY = top, bottom do
         for tileX = left, right do
-            if self.roadGenerator:getRoadTile(tileX, tileY) then
-                return true
+            local chunkScale = self.chunkSize / TILE_SIZE
+            local cx = math.floor(tileX / chunkScale)
+            local cy = math.floor(tileY / chunkScale)
+            local key = cx .. "," .. cy
+            
+            if self.roads[key] then
+                local lx = tileX % chunkScale
+                local ly = tileY % chunkScale
+                if self.roads[key][lx] and self.roads[key][lx][ly] then
+                    return true
+                end
             end
         end
     end
@@ -551,7 +585,21 @@ function World:getNearbyRoadTiles(centerX, centerY, radius)
         for dx = -radiusInTiles, radiusInTiles do
             local tileX = centerTileX + dx
             local tileY = centerTileY + dy
-            local tileID = self.roadGenerator:getRoadTile(tileX, tileY)
+            
+            local chunkScale = self.chunkSize / TILE_SIZE
+            local cx = math.floor(tileX / chunkScale)
+            local cy = math.floor(tileY / chunkScale)
+            local key = cx .. "," .. cy
+            
+            local tileID = nil
+            if self.roads[key] then
+                local lx = tileX % chunkScale
+                local ly = tileY % chunkScale
+                if self.roads[key][lx] then
+                    tileID = self.roads[key][lx][ly]
+                end
+            end
+
             if tileID then
                 table.insert(nearbyRoads, {
                     x = tileX * TILE_SIZE,
@@ -1053,7 +1101,20 @@ function World:checkWaterCollision(x, y, width, height)
 
     for tileY = top, bottom do
         for tileX = left, right do
-            local tileID = self.waterGenerator:getWaterTile(tileX, tileY)
+            local chunkScale = self.chunkSize / TILE_SIZE
+            local cx = math.floor(tileX / chunkScale)
+            local cy = math.floor(tileY / chunkScale)
+            local key = cx .. "," .. cy
+            
+            local tileID = nil
+            if self.water[key] then
+                local lx = tileX % chunkScale
+                local ly = tileY % chunkScale
+                if self.water[key][lx] then
+                    tileID = self.water[key][lx][ly]
+                end
+            end
+
             if tileID then
                 local masks = Constants.WATER_COLLISION_MASKS[tileID]
                 if masks then

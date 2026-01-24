@@ -49,67 +49,9 @@ end
 function Loading.update(game, dt)
     if not game.loadingStarted then
         game.loadingStarted = true
-        game.loadingProgress = 0.1
-        game.loadingMessage = "Downloading world data..."
-        
-        -- Create worldCache and do SYNC download
-        if not game.worldCache then
-            game.worldCache = WorldCache:new()
-        end
-        
-        -- Sync download (blocking)
-        local success = game.worldCache:downloadWorldData()
-        
-        if success then
-            game.loadingMessage = "World data received!"
-            game.loadingProgress = 0.5
-            print("Loading: World data downloaded successfully")
-            
-            -- Copy roads/water into world tables
-            if game.world and game.worldCache.worldData and game.worldCache.worldData.chunks then
-                local roadCount = 0
-                local waterCount = 0
-                
-                for chunkKey, chunkData in pairs(game.worldCache.worldData.chunks) do
-                    -- Load roads
-                    if chunkData.roads then
-                        if not game.world.roads[chunkKey] then game.world.roads[chunkKey] = {} end
-                        for tileKey, tileID in pairs(chunkData.roads) do
-                            local lx, ly = tileKey:match("([^,]+),([^,]+)")
-                            lx, ly = tonumber(lx), tonumber(ly)
-                            if lx and ly then
-                                if not game.world.roads[chunkKey][lx] then game.world.roads[chunkKey][lx] = {} end
-                                game.world.roads[chunkKey][lx][ly] = tileID
-                                roadCount = roadCount + 1
-                            end
-                        end
-                    end
-                    
-                    -- Load water
-                    if chunkData.water then
-                        if not game.world.water[chunkKey] then game.world.water[chunkKey] = {} end
-                        for tileKey, tileID in pairs(chunkData.water) do
-                            local lx, ly = tileKey:match("([^,]+),([^,]+)")
-                            lx, ly = tonumber(lx), tonumber(ly)
-                            if lx and ly then
-                                if not game.world.water[chunkKey][lx] then game.world.water[chunkKey][lx] = {} end
-                                game.world.water[chunkKey][lx][ly] = tileID
-                                waterCount = waterCount + 1
-                            end
-                        end
-                    end
-                    
-                    game.world.loadedChunks[chunkKey] = true
-                end
-                
-                game.world.spriteBatchDirty = true
-                print(string.format("Loading: Copied %d roads and %d water tiles to world", roadCount, waterCount))
-            end
-        else
-            game.loadingMessage = "Download failed..."
-            print("Loading: World data download FAILED")
-        end
-        
+        game.loadingProgress = 0.5
+        game.loadingMessage = "Initializing world..."
+        -- Skip download, world will load lazily via TCP chunks
         return
     end
     

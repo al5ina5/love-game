@@ -221,7 +221,7 @@ export class WorldGenerator {
     }
 
     private drawThickLine(path: { x: number, y: number }[]) {
-        const THICKNESS = 2; // radius (reduced from 4 for thinner roads)
+        const THICKNESS = 4; // radius (increased from 2 for better connectivity as requested)
         for (const node of path) {
             for (let dy = -THICKNESS; dy <= THICKNESS; dy++) {
                 for (let dx = -THICKNESS; dx <= THICKNESS; dx++) {
@@ -320,7 +320,7 @@ export class WorldGenerator {
 
         // Grow ponds
         for (const seed of potentialSeeds) {
-            if (this.rng.next() < 0.03) { // 3% chance (adjusted for larger sizes)
+            if (this.rng.next() < 0.05) { // 5% chance (increased from 3% for more water)
                 this.growPond(seed);
             }
         }
@@ -333,8 +333,8 @@ export class WorldGenerator {
     }
 
     private growPond(seed: { x: number, y: number }) {
-        // Smaller water bodies (reduced from 60-600 to 30-200)
-        const targetSize = this.rng.range(30, 200);
+        // Larger water bodies (increased from 30-200 to 100-500)
+        const targetSize = this.rng.range(100, 500);
         let currentSize = 0;
         const frontier = [seed];
         this.waterMap[`${seed.x},${seed.y}`] = true;
