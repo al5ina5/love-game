@@ -23,7 +23,7 @@ local NetworkUpdater = require('src.game.network_updater')
 local OnlineClient = require('src.net.online_client')
 local Constants = require('src.constants')
 
-local WORLD_W, WORLD_H = 5000, 5000
+local WORLD_W, WORLD_H = 2500, 2500
 
 local Game = {
     -- isHost removed - all players are equal in online mode
@@ -259,7 +259,8 @@ function Game:update(dt)
     self.lastNetworkPoll = self.lastNetworkPoll + dt
     if self.network and self.lastNetworkPoll >= self.networkPollInterval then
         self.lastNetworkPoll = 0
-        local messages = self.network:poll()
+        -- Time budget: 5ms for network processing per frame to prevent stutter
+        local messages = self.network:poll(0.005)
         for _, msg in ipairs(messages) do
             NetworkHandler.handleMessage(msg, self)
         end

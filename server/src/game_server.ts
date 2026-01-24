@@ -90,9 +90,9 @@ import { SpatialGrid } from './world/SpatialGrid';
 
 export class GameServer {
   private state: GameState;
-  // Match client world size: 5,000x5,000 pixels (takes ~1 minute to walk across at sprint)
-  private worldWidth: number = 5000;
-  private worldHeight: number = 5000;
+  // Match client world size: 2,500x2,500 pixels (smaller for MIYO optimization)
+  private worldWidth: number = 2500;
+  private worldHeight: number = 2500;
   private nextProjectileId: number = 1;
   private nextChestId: number = 1;
   private lastUpdate: number = Date.now();
@@ -137,10 +137,10 @@ export class GameServer {
       cycleDuration: this.CYCLE_DURATION,
       cycleTimeRemaining: this.CYCLE_DURATION,
       extractionZones: [
-        { x: 500, y: 500, radius: 50 }, // Top-left
-        { x: 4500, y: 500, radius: 50 }, // Top-right
-        { x: 500, y: 4500, radius: 50 }, // Bottom-left
-        { x: 4500, y: 4500, radius: 50 }, // Bottom-right
+        { x: 250, y: 250, radius: 50 }, // Top-left
+        { x: 2250, y: 250, radius: 50 }, // Top-right
+        { x: 250, y: 2250, radius: 50 }, // Bottom-left
+        { x: 2250, y: 2250, radius: 50 }, // Bottom-right
       ],
       deadlyEventActive: false,
     };
