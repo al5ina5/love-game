@@ -71,9 +71,10 @@ function BaseEntity:updateAnimation(dt, isMoving)
 end
 
 function BaseEntity:draw()
-    -- Round positions to pixels to prevent blur
-    local drawX = math.floor(self.x + 0.5)
-    local drawY = math.floor(self.y + 0.5)
+    -- Render at exact sub-pixel coordinates for smooth movement
+    -- This prevents the "sawtooth" jitter when camera follows smoothly
+    local drawX = self.x
+    local drawY = self.y
     
     -- Draw shadow
     love.graphics.setColor(0, 0, 0, 0.3)

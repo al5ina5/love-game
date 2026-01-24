@@ -13,22 +13,23 @@ function RemotePlayer:new(x, y, spriteName)
 
     self.x = x or 0
     self.y = y or 0
-    self.targetX = self.x
-    self.targetY = self.y
-    self.lerpSpeed = Constants.MIYOO_REMOTE_LERP_SPEED  -- Miyoo-tuned for optimal smoothness
+    
+    -- Snapshot Buffer
+    self.snapshots = {}
+    self:addSnapshot(love.timer.getTime(), self.x, self.y)
+    
+    -- Interpolation Settings
+    -- 100ms buffering means we render the player where they were 100ms ago.
+    -- This allows us to smoothly interpolate between packets even if they arrive with jitter.
+    -- Server sends at 20Hz (50ms interval). 100ms = 2 packets buffer.
+    self.interpolationDelay = 0.1 
 
-    -- Enhanced interpolation state
+    -- Fallback for lag
     self.lastUpdateTime = love.timer.getTime()
-    self.velocityX = 0
-    self.velocityY = 0
-    self.lastPositionX = self.x
-    self.lastPositionY = self.y
-    self.extrapolationTime = 0
-    self.maxExtrapolationTime = Constants.MIYOO_MAX_EXTRAPOLATION_TIME  -- Max time to extrapolate before stopping
-    self.smoothingFactor = 0.15  -- How much to smooth velocity estimates
+    self.lastKnownDirection = "down"
 
-    -- Load sprite sheet (will be set from network message or default)
-    self.spriteName = spriteName or "Elf Bladedancer"  -- Default fallback
+    -- Load sprite sheet
+    self.spriteName = spriteName or "Elf Bladedancer"
     self:setSprite(self.spriteName)
 
     return self
@@ -43,84 +44,119 @@ function RemotePlayer:setSprite(spriteName)
     self:loadSprite(spritePath)
 end
 
-function RemotePlayer:setTargetPosition(x, y, dir, isSprinting)
-    local currentTime = love.timer.getTime()
-    local dt = currentTime - self.lastUpdateTime
-
-    -- Calculate velocity from position change
-    if dt > 0.001 then  -- Avoid division by very small numbers
-        local newVelocityX = (x - self.lastPositionX) / dt
-        local newVelocityY = (y - self.lastPositionY) / dt
-
-        -- Smooth velocity estimation to reduce jitter
-        self.velocityX = self.velocityX * (1 - self.smoothingFactor) + newVelocityX * self.smoothingFactor
-        self.velocityY = self.velocityY * (1 - self.smoothingFactor) + newVelocityY * self.smoothingFactor
-    end
-
-    -- Update last position and time
-    self.lastPositionX = self.x
-    self.lastPositionY = self.y
-    self.lastUpdateTime = currentTime
-
-    -- Reset extrapolation timer since we got a fresh update
-    self.extrapolationTime = 0
-
-    -- Set direction
-    if dir then
-        self.direction = dir
-    else
-        local dx = x - self.x
-        local dy = y - self.y
-        if math.abs(dx) > math.abs(dy) then
-            self.direction = dx > 0 and "right" or "left"
-        elseif dy ~= 0 then
-            self.direction = dy > 0 and "down" or "up"
-        end
-    end
-
-    self.targetX = x
-    self.targetY = y
-    if isSprinting ~= nil then
-        self.isSprinting = isSprinting
+function RemotePlayer:addSnapshot(timestamp, x, y)
+    -- Insert new snapshot sorted by time (usually just append)
+    table.insert(self.snapshots, {
+        time = timestamp,
+        x = x,
+        y = y
+    })
+    
+    -- Keep buffer finite (e.g. keep last 20 snapshots ~ 1 second)
+    if #self.snapshots > 20 then
+        table.remove(self.snapshots, 1)
     end
 end
 
+function RemotePlayer:setTargetPosition(x, y, dir, isSprinting)
+    local now = love.timer.getTime()
+    
+    -- Add the authoritative position update to our snapshot history
+    self:addSnapshot(now, x, y)
+
+    if dir then self.lastKnownDirection = dir end
+    if isSprinting ~= nil then self.isSprinting = isSprinting end
+    
+    self.lastUpdateTime = now
+end
+
 function RemotePlayer:update(dt)
-    local distToTargetSq = (self.targetX - self.x)^2 + (self.targetY - self.y)^2
-    local distanceToTarget = math.sqrt(distToTargetSq)
-
-    -- If we're close to target, snap to position and stop moving
-    if distanceToTarget < 0.1 then
-        self.x = self.targetX
-        self.y = self.targetY
-        self.moving = false
-        self.extrapolationTime = 0
-    else
-        -- Check if we should interpolate towards target or extrapolate using velocity
-        local timeSinceUpdate = love.timer.getTime() - self.lastUpdateTime
-
-        if timeSinceUpdate < 0.1 then
-            -- Recent update: interpolate towards target
-            local t = math.min(1, self.lerpSpeed * dt)
-            self.x = self.x + (self.targetX - self.x) * t
-            self.y = self.y + (self.targetY - self.y) * t
-            self.extrapolationTime = 0
-        else
-            -- Older update: extrapolate using velocity
-            self.extrapolationTime = self.extrapolationTime + dt
-
-            if self.extrapolationTime < self.maxExtrapolationTime then
-                -- Extrapolate position using velocity
-                self.x = self.x + self.velocityX * dt
-                self.y = self.y + self.velocityY * dt
-            else
-                -- Stop extrapolating after max time to prevent runaway movement
-                self.moving = false
-            end
+    local now = love.timer.getTime()
+    local renderTime = now - self.interpolationDelay
+    
+    -- Find the two snapshots surrounding renderTime
+    -- snapshots[i].time <= renderTime < snapshots[i+1].time
+    
+    local prev, next = nil, nil
+    
+    for i = 1, #self.snapshots - 1 do
+        if self.snapshots[i].time <= renderTime and self.snapshots[i+1].time >= renderTime then
+            prev = self.snapshots[i]
+            next = self.snapshots[i+1]
+            break
         end
-
-        -- Check if we're still moving (some distance from target)
-        self.moving = distToTargetSq > 1.0
+    end
+    
+    if prev and next then
+        -- INTERPOLATION: We are within our buffered history
+        local totalTime = next.time - prev.time
+        local timeIntoFrame = renderTime - prev.time
+        local alpha = 0
+        if totalTime > 0.0001 then
+            alpha = timeIntoFrame / totalTime
+        end
+        
+        -- Linear interpolation
+        local newX = prev.x + (next.x - prev.x) * alpha
+        local newY = prev.y + (next.y - prev.y) * alpha
+        
+        -- Determine direction based on movement
+        local dx = newX - self.x
+        local dy = newY - self.y
+        if math.abs(dx) > 0.01 or math.abs(dy) > 0.01 then
+            if math.abs(dx) > math.abs(dy) then
+                self.direction = dx > 0 and "right" or "left"
+            else
+                self.direction = dy > 0 and "down" or "up"
+            end
+            self.moving = true
+        else
+            self.moving = false
+            -- Keep last direction if stopped
+        end
+        
+        self.x = newX
+        self.y = newY
+        
+    elseif #self.snapshots >= 1 then
+        -- EXTRAPOLATION / FALLBACK
+        -- If renderTime is newer than our newest snapshot (running dry / lag)
+        -- OR renderTime is older than our oldest snapshot (shouldn't happen with sufficient buffer)
+        
+        local newest = self.snapshots[#self.snapshots]
+        
+        if renderTime > newest.time then
+            -- We ran out of future packets. Snap to latest or extrapolate?
+            -- Safe bet: Snap to latest (maybe slide slightly).
+            -- For now, just slide towards it or stay there.
+            
+            -- Simple lerp to catch up if we are behind real-time
+            local dx = newest.x - self.x
+            local dy = newest.y - self.y
+            
+             -- If very close, just snap
+            if dx*dx + dy*dy < 1 then
+                self.x = newest.x
+                self.y = newest.y
+                self.moving = false
+            else
+                -- Eased catchup
+                self.x = self.x + dx * 10 * dt
+                self.y = self.y + dy * 10 * dt
+                self.moving = true
+                
+                 -- Direction
+                if math.abs(dx) > math.abs(dy) then
+                    self.direction = dx > 0 and "right" or "left"
+                else
+                    self.direction = dy > 0 and "down" or "up"
+                end
+            end
+        else
+            -- We are way behind history? Just snap to oldest.
+            self.x = self.snapshots[1].x
+            self.y = self.snapshots[1].y
+        end
     end
 
     -- Update animation using base class method

@@ -943,10 +943,10 @@ function World:getRocksForDrawing(chunkManager, camera, worldCache)
                 local sortY = math.floor(rock.y) + 16
                 table.insert(drawList, {
                     type = "rock",
-                    x = math.floor(rock.x),
+                    x = rock.x,
                     y = sortY,
                     tileId = rock.tileId,
-                    originalY = math.floor(rock.y)
+                    originalY = rock.y
                 })
             end
         end
@@ -1002,10 +1002,10 @@ function World:getRocksForDrawing(chunkManager, camera, worldCache)
             local sortY = math.floor(rock.y) + 16
             table.insert(drawList, {
                 type = "rock",
-                x = math.floor(rock.x),
+                x = rock.x,
                 y = sortY,
                 tileId = rock.tileId,
-                originalY = math.floor(rock.y)
+                originalY = rock.y
             })
         end
     end

@@ -184,9 +184,10 @@ end
 -- Call before drawing world content
 function Camera:attach()
     love.graphics.push()
-    -- Translate by negative camera position (rounded to pixels to prevent tile seams)
-    -- Round to prevent black lines/gaps between tiles when camera is at sub-pixel positions
-    love.graphics.translate(-math.floor(self.x + 0.5), -math.floor(self.y + 0.5))
+    -- CONTINUOUS RENDERING: Removed math.floor for sub-pixel smoothness.
+    -- This may cause slight tile seams or "shimmer" on some hardware for pixel art,
+    -- but guarantees smooth scrolling at high refresh rates (144Hz+).
+    love.graphics.translate(-self.x, -self.y)
 end
 
 -- Call after drawing world content, before drawing HUD
