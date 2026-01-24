@@ -2,23 +2,41 @@
 # build/portmaster/deploy.sh
 # Builds and deploys Pixel Raiders to PortMaster devices via SSH
 #
-# Usage: ./build/portmaster/deploy.sh
+# Usage: 
+#   ./build/portmaster/deploy.sh       # Deploy with dev API (default)
+#   ./build/portmaster/deploy.sh --prod # Deploy with production API
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GAME_NAME="PIXELRAIDERS"
 DIST_DIR="$PROJECT_ROOT/dist/portmaster"
 
-# --- SpruceOS Configuration ---
-SPRUCE_IP="10.0.0.94"
-SPRUCE_USER="spruce"
-SPRUCE_PASS="happygaming"
-SPRUCE_PATH="/mnt/sdcard/Roms/PORTS"
+# Source .env for deployment configuration
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    source "$PROJECT_ROOT/.env"
+    set +a
+fi
+
+# --- PortMaster Configuration (from .env) ---
+SPRUCE_IP="${PORTMASTER_TARGET_HOST:-10.0.0.94}"
+SPRUCE_USER="${PORTMASTER_TARGET_USER:-spruce}"
+SPRUCE_PASS="${PORTMASTER_TARGET_PASS:-happygaming}"
+SPRUCE_PATH="${PORTMASTER_DEPLOY_PATH:-/mnt/sdcard/Roms/PORTS}"
+
 
 cd "$PROJECT_ROOT"
 
-echo "=== Building $GAME_NAME ==="
-"$SCRIPT_DIR/build.sh" "$1"
+# Pass flag to build script (--prod or default to dev)
+BUILD_FLAG="${1:---dev}"
+if [ "$BUILD_FLAG" = "--prod" ]; then
+    echo "=== Building $GAME_NAME (PRODUCTION API) ==="
+else
+    echo "=== Building $GAME_NAME (DEV API) ==="
+    BUILD_FLAG=""  # build.sh uses dev by default
+fi
+
+"$SCRIPT_DIR/build.sh" "$BUILD_FLAG"
 
 echo ""
 echo "=== Deploying to SpruceOS ($SPRUCE_IP) ==="

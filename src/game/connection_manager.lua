@@ -156,15 +156,11 @@ function ConnectionManager.hostOnlineAsync(isPublic, game, callback)
             return
         end
 
-        -- Setup relay client (TCP) - starts in background
+        -- Setup relay client (TCP) - server will assign player ID
         local relayClient = RelayClient:new()
-        relayClient:connect(roomCode, "host")
+        relayClient:connect(roomCode, "player", game)
         
-        -- We'll handle the adapter creation in updateOnline once relay is connected
         game.network = NetworkAdapter:createRelay(relayClient)
-
-        game.isHost = true
-        game.playerId = "host"
         game.connectionManager.onlineClient = onlineClient
         
         if game.menu then
@@ -201,11 +197,9 @@ function ConnectionManager.joinOnlineAsync(roomCode, game, callback)
         end
 
         local relayClient = RelayClient:new()
-        relayClient:connect(roomCode, "client")
+        relayClient:connect(roomCode, "player", game)
 
         game.network = NetworkAdapter:createRelay(relayClient)
-        game.isHost = false
-        game.playerId = "client"
         game.connectionManager.onlineClient = onlineClient
 
         -- PLAYER_JOIN will be sent in updateOnline once relay.connected is true
@@ -254,8 +248,8 @@ end
 function ConnectionManager.updateOnline(dt, game)
     local cm = game.connectionManager
     
-    -- Send periodic heartbeat if hosting online
-    if cm.onlineClient and game.isHost then
+    -- Send periodic heartbeat if we created the room (have onlineClient)
+    if cm.onlineClient then
         cm.heartbeatTimer = cm.heartbeatTimer + dt
         if cm.heartbeatTimer >= cm.heartbeatInterval then
             cm.onlineClient:heartbeat()
@@ -263,52 +257,21 @@ function ConnectionManager.updateOnline(dt, game)
         end
     end
     
-    -- Host: Send PLAYER_JOIN when relay becomes paired (client connected)
+    -- Send PLAYER_JOIN when connected (game.playerId is already set in callbacks)
     if game.network and game.network.type == NetworkAdapter.TYPE.RELAY then
         local relayClient = game.network.client
-        if relayClient and relayClient.connected then
-            -- Create local server for host if it doesn't exist yet
-            if game.isHost and not game.network.localServer then
-                local Server = require('src.net.server')
-                local localServer = Server:new(nil, "boonsnatch")
-                if localServer and localServer.serverLogic then
-                    game.network.localServer = localServer
-                    if game.player then
-                        -- Use game.playerId (assigned by relay, e.g. "p1") instead of "host"
-                        -- This prevents ghost players where client is "p1" but server has "host"
-                        local id = game.playerId or "host"
-                        localServer.serverLogic:addPlayer(id, game.player.x, game.player.y)
-                        localServer.serverLogic:spawnInitialChests(10)
-                        localServer.serverLogic:spawnNPCs()
-                        localServer.serverLogic:spawnAnimals()
-                    end
-                    print("Connection: Local serverLogic initialized for relay host")
-                end
+        if relayClient and relayClient.connected and not cm.sentJoin and game.playerId then
+            local Protocol = require('src.net.protocol')
+            local playerX = game.player and game.player.x or 2500
+            local playerY = game.player and game.player.y or 2500
+            local skin = game.player and game.player.spriteName or nil
+            local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, game.playerId, math.floor(playerX), math.floor(playerY))
+            if skin then
+                encoded = encoded .. "|" .. skin
             end
-
-            -- Send PLAYER_JOIN if not sent yet (immediately for client, when paired for host)
-            if not cm.sentJoin then
-                local shouldJoin = false
-                if not game.isHost then
-                    shouldJoin = true -- Client joins immediately
-                elseif relayClient.paired then
-                    shouldJoin = true -- Host joins when opponent joins
-                end
-
-                if shouldJoin then
-                    local Protocol = require('src.net.protocol')
-                    local playerX = game.player and game.player.x or 400
-                    local playerY = game.player and game.player.y or 300
-                    local skin = game.player and game.player.spriteName or nil
-                    local encoded = Protocol.encode(Protocol.MSG.PLAYER_JOIN, game.playerId or (game.isHost and "host" or "client"), math.floor(playerX), math.floor(playerY))
-                    if skin then
-                        encoded = encoded .. "|" .. skin
-                    end
-                    relayClient:send(encoded)
-                    cm.sentJoin = true
-                    print("Connection: PLAYER_JOIN sent (" .. (game.playerId or "unknown") .. ")")
-                end
-            end
+            relayClient:send(encoded)
+            cm.sentJoin = true
+            print("Connection: PLAYER_JOIN sent (" .. game.playerId .. ")")
         end
     end
 end

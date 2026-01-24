@@ -62,8 +62,15 @@ interface Animal {
   groupRadius: number;
 }
 
+interface Pet {
+  x: number;
+  y: number;
+  monster?: string;
+}
+
 interface GameState {
   players: { [playerId: string]: Player };
+  pets: { [playerId: string]: Pet }; // One pet per player
   projectiles: { [projId: string]: Projectile };
   chests: { [chestId: string]: Chest };
   npcs: { [npcId: string]: NPC };
@@ -94,6 +101,23 @@ export class GameServer {
   private readonly PROJECTILE_SPEED = 400; // pixels per second
   private readonly PROJECTILE_DAMAGE = 10;
   private readonly PROJECTILE_LIFETIME = 3.0; // seconds
+  private readonly MONSTER_SPRITES = [
+    "Blinded Grimlock",
+    "Bloodshot Eye",
+    "Brawny Ogre",
+    "Crimson Slaad",
+    "Crushing Cyclops",
+    "Death Slime",
+    "Fungal Myconid",
+    "Humongous Ettin",
+    "Murky Slaad",
+    "Ochre Jelly",
+    "Ocular Watcher",
+    "Red Cap",
+    "Shrieker Mushroom",
+    "Stone Troll",
+    "Swamp Troll",
+  ];
 
   private chunkManager: ChunkManager;
   private animalManager: AnimalManager | null = null;
@@ -103,6 +127,7 @@ export class GameServer {
     this.spatialGrid = new SpatialGrid(512); // Grid cell size 512px
     this.state = {
       players: {},
+      pets: {}, // Initialize empty pets object
       projectiles: {},
       chests: {},
       npcs: {},
@@ -213,14 +238,11 @@ export class GameServer {
       }
     }
 
-    // Update projectiles
+    // Update game state
     this.updateProjectiles(dt);
-
-    // Update chest respawn timers
     this.updateChests(dt);
-
-    // Update player invulnerability
     this.updatePlayerInvulnerability(dt);
+    this.updatePets(dt); // Update pets to follow owners
   }
 
   private triggerDeadlyEvent(): void {
@@ -323,13 +345,22 @@ export class GameServer {
       extracted: false,
     };
 
+    // Create pet for this player
+    const monster = this.MONSTER_SPRITES[Math.floor(Math.random() * this.MONSTER_SPRITES.length)];
+    this.state.pets[playerId] = {
+      x: spawnX,
+      y: spawnY,
+      monster,
+    };
+
     this.spatialGrid.updateEntity(playerId, spawnX, spawnY);
 
-    console.log(`[GameServer] Player ${playerId} added at (${spawnX}, ${spawnY})`);
+    console.log(`[GameServer] Player ${playerId} added at (${spawnX}, ${spawnY}) with pet`);
   }
 
   removePlayer(playerId: string): void {
     delete this.state.players[playerId];
+    delete this.state.pets[playerId]; // Remove pet too
     this.spatialGrid.removeEntity(playerId);
     console.log(`[GameServer] Player ${playerId} removed`);
   }
@@ -507,6 +538,40 @@ export class GameServer {
         player.invulnerableTimer -= dt;
         if (player.invulnerableTimer <= 0) {
           player.invulnerable = false;
+        }
+      }
+    }
+  }
+
+  private updatePets(dt: number): void {
+    const PET_SPEED = 45; // Base movement speed from client
+    const PET_CATCH_UP_SPEED = 80; // Catch up speed from client
+    const PREFERRED_DISTANCE = 25; // Sweet spot distance from owner
+    const MAX_DISTANCE = 50; // Too far! Catch up
+
+    for (const playerId in this.state.players) {
+      const player = this.state.players[playerId];
+      const pet = this.state.pets[playerId];
+
+      if (pet && player) {
+        const dx = player.x - pet.x;
+        const dy = player.y - pet.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Determine speed based on distance
+        let speed = 0;
+        if (dist > MAX_DISTANCE) {
+          speed = PET_CATCH_UP_SPEED;
+        } else if (dist > PREFERRED_DISTANCE) {
+          speed = PET_SPEED;
+        }
+
+        if (speed > 0) {
+          const moveDist = speed * dt;
+          // Move toward player until preferred distance is reached
+          const ratio = Math.min(1, moveDist / dist);
+          pet.x += dx * ratio;
+          pet.y += dy * ratio;
         }
       }
     }
@@ -729,6 +794,7 @@ export class GameServer {
 
     const relevantState: any = {
       players: {},
+      pets: {}, // Include pets
       projectiles: {}, // Projectiles might be fast, maybe redundant spatial check?
       chests: {}, // Chests are static? No, they open/close. Should add to grid.
       npcs: {},
@@ -743,10 +809,13 @@ export class GameServer {
     // Include self always
     relevantState.players[playerId] = player;
 
-    // Filter Players
+    // Include ALL players (not just nearby) - players need to see all other players
+    // Spatial filtering for players causes issues where remote players disappear/reappear
     for (const pid in this.state.players) {
-      if (nearbyIds.has(pid)) {
-        relevantState.players[pid] = this.state.players[pid];
+      relevantState.players[pid] = this.state.players[pid];
+      // Include pet for each player
+      if (this.state.pets[pid]) {
+        relevantState.pets[pid] = this.state.pets[pid];
       }
     }
 

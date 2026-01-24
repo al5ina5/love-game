@@ -26,12 +26,10 @@ local Constants = require('src.constants')
 local WORLD_W, WORLD_H = 5000, 5000
 
 local Game = {
-    isHost = false,
+    -- isHost removed - all players are equal in online mode
+    -- pet removed - all pets are in remotePets synced from server
     remotePlayers = {},
     remotePets = {},
-    network = nil,
-    player = nil,
-    pet = nil,
     npcs = {},
     animals = {},
     dialogue = nil,
@@ -48,8 +46,6 @@ local Game = {
     loadingComplete = false,
     loadingProgress = 0,
     loadingMessage = "Loading...",
-    desaturationShader = nil,
-    worldCanvas = nil,
 
     -- World cache for MIYO performance optimization
     worldCache = nil,
@@ -84,9 +80,7 @@ function Game:load()
     end
     
     if self.player and type(self.player) == "table" and self.player.x then
-        pcall(function()
-            self.pet = Pet:new(self.player)
-        end)
+        -- pet creation removed - server creates pets
     end
     
     self.dialogue = Dialogue:new()
@@ -101,7 +95,7 @@ function Game:load()
     self.camera = Camera:new(cameraPlayer, WORLD_W, WORLD_H, viewportWidth, viewportHeight)
     
     self.network = nil
-    self.isHost = false
+    -- isHost removed - all players are equal in online mode
     self.remotePlayers = {}
     self.playerId = nil
     
@@ -146,20 +140,6 @@ function Game:load()
     
     self.timerFont = love.graphics.newFont("assets/fonts/runescape_uf.ttf", 24)
     self.timerFont:setFilter("nearest", "nearest")
-    
-    -- Initialize desaturation shader and canvas if enabled
-    local Constants = require('src.constants')
-    if Constants.ENABLE_DESATURATION_EFFECT then
-        local DesaturationShader = require('src.systems.desaturation_shader')
-        self.desaturationShader = DesaturationShader.new()
-        
-        -- Create canvas for rendering world with shader
-        -- Use a reasonable size that will be resized as needed
-        local canvasWidth = viewportWidth or 320
-        local canvasHeight = viewportHeight or 240
-        self.worldCanvas = love.graphics.newCanvas(canvasWidth, canvasHeight)
-        self.worldCanvas:setFilter("nearest", "nearest")
-    end
 end
 
 function Game:update(dt)
@@ -282,10 +262,6 @@ function Game:update(dt)
         local messages = self.network:poll()
         for _, msg in ipairs(messages) do
             NetworkHandler.handleMessage(msg, self)
-        end
-
-        if self.isHost then
-            self.discovery:setPlayerCount(1 + self:countRemotePlayers())
         end
     end
     

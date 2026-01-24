@@ -44,7 +44,7 @@ function RemoteEntityFactory.ensureRemotePet(game, playerId, owner)
 end
 
 function RemoteEntityFactory.updateRemotePet(game, playerId, x, y, monster)
-    if not playerId or playerId == game.playerId then
+    if not playerId then
         return
     end
     
@@ -62,7 +62,9 @@ function RemoteEntityFactory.updateRemotePet(game, playerId, x, y, monster)
             remotePet:setMonster(monster)
         end
     else
-        local owner = game.remotePlayers[playerId]
+        -- Need to handle creating the pet if it doesn't exist
+        -- even if the owner is the local player
+        local owner = (playerId == game.playerId) and game.player or game.remotePlayers[playerId]
         if owner then
             game.remotePets[playerId] = Pet:new(owner, true, monster)
             game.remotePets[playerId].targetX = x or owner.x
@@ -74,7 +76,8 @@ end
 function RemoteEntityFactory.removeRemotePlayer(game, playerId)
     if playerId then
         game.remotePlayers[playerId] = nil
-        if game.remotePets then
+        if game.remotePets and game.remotePets[playerId] then
+            print("RemoteEntityFactory: Removing pet for " .. tostring(playerId))
             game.remotePets[playerId] = nil
         end
     end

@@ -44,52 +44,7 @@ function EntityManager.updatePlayer(player, dt, world, chunkManager, worldWidth,
     end
 end
 
--- Update pet with collision detection
-function EntityManager.updatePet(pet, dt, world, chunkManager, worldWidth, worldHeight)
-    if not pet or type(pet.update) ~= "function" then
-        return
-    end
-    
-    if not pet.isRemote then
-        pet.checkCollision = function(x, y, width, height)
-            return world:checkRockCollision(x, y, width, height, chunkManager) or 
-                   world:checkWaterCollision(x, y, width, height) or
-                   world:checkTreeCollision(x, y, width, height, chunkManager)
-        end
-        
-        pet:update(dt)
-        
-        if pet.x and pet.y then
-            EntityManager.clampToBounds(pet, worldWidth, worldHeight)
-            
-            if world:checkRockCollision(pet.x, pet.y, pet.width or 16, pet.height or 16, chunkManager) or
-               world:checkWaterCollision(pet.x, pet.y, pet.width or 16, pet.height or 16) or
-               world:checkTreeCollision(pet.x, pet.y, pet.width or 16, pet.height or 16, chunkManager) then
-                local safeFound = false
-                for offset = 1, 8 do
-                    for angle = 0, math.pi * 2, math.pi / 4 do
-                        local tryX = pet.x + math.cos(angle) * offset
-                        local tryY = pet.y + math.sin(angle) * offset
-                        if not world:checkRockCollision(tryX, tryY, pet.width or 16, pet.height or 16, chunkManager) and
-                           not world:checkWaterCollision(tryX, tryY, pet.width or 16, pet.height or 16) and
-                           not world:checkTreeCollision(tryX, tryY, pet.width or 16, pet.height or 16, chunkManager) then
-                            pet.x = tryX
-                            pet.y = tryY
-                            safeFound = true
-                            break
-                        end
-                    end
-                    if safeFound then break end
-                end
-            end
-        end
-    else
-        pet:update(dt)
-        if pet.x and pet.y then
-            EntityManager.clampToBounds(pet, worldWidth, worldHeight)
-        end
-    end
-end
+-- updatePet removed - all pets are now remote pets synced from server
 
 -- Update remote players
 function EntityManager.updateRemotePlayers(remotePlayers, dt, worldWidth, worldHeight)
@@ -218,7 +173,7 @@ function EntityManager.updateAll(game, dt)
     local worldHeight = game.world and game.world.worldHeight or 5000
     
     EntityManager.updatePlayer(game.player, dt, game.world, game.chunkManager, worldWidth, worldHeight)
-    EntityManager.updatePet(game.pet, dt, game.world, game.chunkManager, worldWidth, worldHeight)
+    -- game.pet is removed - all pets are in game.remotePets
     EntityManager.updateRemotePlayers(game.remotePlayers, dt, worldWidth, worldHeight)
     EntityManager.updateRemotePets(game.remotePets, dt, worldWidth, worldHeight)
     EntityManager.updateNPCs(game.npcs, dt, game.chunkManager, game.worldCache, game.camera)

@@ -44,9 +44,9 @@ function RelayClient:new()
     return self
 end
 
-function RelayClient:connect(roomCode, playerId)
+function RelayClient:connect(roomCode, playerId, game)
     self.roomCode = roomCode:upper()
-    self.playerId = playerId -- "host" or "client"
+    self.game = game -- Store game reference to set playerId immediately
     self.connecting = true
     self.connected = false
     
@@ -265,14 +265,20 @@ function RelayClient:poll()
                 -- Skip logging for frequent message types (state snapshots and cycle updates)
                 local msgType = msg.type or ""
                 if msgType ~= "state" and msgType ~= "cycle" and msgType ~= Protocol.MSG.CYCLE_TIME then
-                    print("RelayClient: Decoded message - type: " .. msgType .. ", id: " .. (msg.id or "nil"))
+                    -- print("RelayClient: Decoded message - type: " .. msgType .. ", id: " .. (msg.id or "nil"))
                 end
                 -- Handle server-assigned player ID from join message
                 if msg.type == Protocol.MSG.PLAYER_JOIN and not self.receivedPlayerId then
                     -- First join message is our own ID assignment from server
                     self.playerId = msg.id
                     self.receivedPlayerId = true
-                    print("RelayClient: Received server-assigned player ID: " .. self.playerId)
+                    
+                    -- CRITICAL: Set game.playerId immediately
+                    if self.game then
+                        self.game.playerId = msg.id
+                        print("RelayClient: Server assigned player ID: " .. msg.id)
+                    end
+                    
                     -- Don't process this as a player_joined event, it's just our ID assignment
                     -- The state snapshot will have all players including us
                 elseif msg.id == self.playerId then

@@ -201,23 +201,45 @@ generate_windows_icon() {
 build_love() {
     print_step "Creating ${GAME_NAME}.love..."
     
+    local use_prod="${1:-false}"
+    
     mkdir -p "$BUILD_DIR"
     cd "$PROJECT_ROOT"
     
-    # Create a production .env file to ensure we use the real server
-    # This ensures USE_LOCAL_API is not set to true
-    local temp_env="$BUILD_DIR/.env.production"
-    echo "# Production build - auto-generated" > "$temp_env"
-    echo "USE_LOCAL_API=false" >> "$temp_env"
-    echo "DEV_MODE=false" >> "$temp_env"
-    echo "ENABLE_DESATURATION_EFFECT=true" >> "$temp_env"
-    echo "DISABLE_CHESTS=false" >> "$temp_env"
+    # Source .env for deployment configuration
+    if [ -f "$PROJECT_ROOT/.env" ]; then
+        set -a
+        source "$PROJECT_ROOT/.env"
+        set +a
+    fi
+    
+    # Create .env file based on build type
+    local temp_env="$BUILD_DIR/.env.build"
+    if [ "$use_prod" = "true" ]; then
+        print_step "Configuring for PRODUCTION API..."
+        echo "# Production build - auto-generated" > "$temp_env"
+        echo "USE_LOCAL_API=false" >> "$temp_env"
+        echo "DEV_MODE=false" >> "$temp_env"
+        echo "ENABLE_DESATURATION_EFFECT=true" >> "$temp_env"
+        echo "DISABLE_CHESTS=false" >> "$temp_env"
+    else
+        print_step "Configuring for DEV API..."
+        echo "# Dev build - auto-generated" > "$temp_env"
+        echo "API_BASE_URL=${DEV_API_URL:-http://10.0.0.197:3000}" >> "$temp_env"
+        echo "RELAY_HOST=${DEV_RELAY_HOST:-10.0.0.197}" >> "$temp_env"
+        echo "RELAY_PORT=${DEV_RELAY_PORT:-12346}" >> "$temp_env"
+        echo "USE_LOCAL_API=true" >> "$temp_env"
+        echo "DEV_MODE=true" >> "$temp_env"
+        echo "ENABLE_DESATURATION_EFFECT=true" >> "$temp_env"
+        echo "DISABLE_CHESTS=false" >> "$temp_env"
+    fi
+
     
     # Remove old .love file if exists
     rm -f "$BUILD_DIR/${GAME_NAME}.love"
     
     # Create .love file (it's just a zip)
-    # First, temporarily copy the production .env to the project root
+    # First, temporarily copy the build .env to the project root
     local original_env_exists=false
     if [ -f ".env" ]; then
         original_env_exists=true
@@ -254,8 +276,13 @@ build_love() {
     rm -f "$temp_env"
     
     print_success "Created ${GAME_NAME}.love ($(du -h "$BUILD_DIR/${GAME_NAME}.love" | cut -f1))"
-    print_success "Build configured to use production server"
+    if [ "$use_prod" = "true" ]; then
+        print_success "Build configured to use PRODUCTION server"
+    else
+        print_success "Build configured to use DEV server"
+    fi
 }
+
 
 # Build Windows version
 build_windows() {
@@ -583,34 +610,44 @@ main() {
     echo ""
     
     local command="${1:-all}"
+    local use_prod="false"
+    
+    # Check for --prod flag in any position
+    if [ "$1" = "--prod" ] || [ "$2" = "--prod" ]; then
+        use_prod="true"
+        # If --prod is first arg, shift to get the actual command
+        if [ "$1" = "--prod" ]; then
+            command="${2:-all}"
+        fi
+    fi
     
     case "$command" in
         all)
-            build_love
+            build_love "$use_prod"
             build_windows
             build_macos
             build_linux
             ;;
         love)
-            build_love
+            build_love "$use_prod"
             ;;
         windows)
-            build_love
+            build_love "$use_prod"
             build_windows
             zip_windows
             ;;
         discord)
-            build_love
+            build_love "$use_prod"
             build_windows
             zip_windows
             notify_discord
             ;;
         macos)
-            build_love
+            build_love "$use_prod"
             build_macos
             ;;
         linux)
-            build_love
+            build_love "$use_prod"
             build_linux
             ;;
         clean)

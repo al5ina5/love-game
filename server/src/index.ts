@@ -169,6 +169,7 @@ const tcpServer = net.createServer((socket: net.Socket) => {
         if (!roomData) {
           // Create new room with game server (always running)
           const gameServer = new GameServer();
+
           roomData = {
             sockets: new Map(),
             gameStarted: true, // Game always running
