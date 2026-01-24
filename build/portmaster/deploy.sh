@@ -18,7 +18,7 @@ SPRUCE_PATH="/mnt/sdcard/Roms/PORTS"
 cd "$PROJECT_ROOT"
 
 echo "=== Building $GAME_NAME ==="
-"$SCRIPT_DIR/build.sh"
+"$SCRIPT_DIR/build.sh" "$1"
 
 echo ""
 echo "=== Deploying to SpruceOS ($SPRUCE_IP) ==="

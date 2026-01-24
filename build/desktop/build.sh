@@ -306,7 +306,7 @@ build_windows() {
     cat > "$win_dir/Run ${GAME_DISPLAY_NAME}.bat" << EOF
 @echo off
 cd /d "%~dp0"
-start "" "%~dp0\\${GAME_NAME}.exe"
+start "" "%~dp0${GAME_NAME}.exe"
 EOF
     
     print_success "Built Windows version: $win_dir/"

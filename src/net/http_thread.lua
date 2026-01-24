@@ -11,33 +11,76 @@ end
 local json = nil
 pcall(function() json = require("src.lib.dkjson") end)
 
+-- Threads don't load all love modules by default
+require("love.system")
+require("love.filesystem") -- Also good practice since we use getSourceBaseDirectory passed in, but we might need it.
+
+
 local requestChannel = love.thread.getChannel("http_request")
 local responseChannel = love.thread.getChannel("http_response")
+
+local function isWindows()
+    return love.system.getOS() == "Windows"
+end
+
+local function getNullDevice()
+    return isWindows() and "NUL" or "/dev/null"
+end
+
+local function quoteArg(arg)
+    if isWindows() then
+        return '"' .. arg:gsub('"', '\\"') .. '"'
+    else
+        return "'" .. arg:gsub("'", "'\\''") .. "'"
+    end
+end
+
+-- Get a temporary file path that is safe to write to
+local function getTempFile()
+    local name = os.tmpname()
+    -- Lua on Windows returns a name starting with backslash (e.g. \s2k3.) which tries to write to root C:
+    -- We need to prepend the TEMP environment variable
+    if isWindows() and name:sub(1,1) == "\\" then
+        local temp = os.getenv("TEMP") or os.getenv("TMP")
+        if temp then
+            return temp .. name
+        end
+    end
+    return name
+end
+
+
 
 local function simple_http_request(method, url, body)
     -- Minimal implementation of SimpleHTTP for the thread
     -- This avoids complex dependencies in the thread
     
-    local tempFile = os.tmpname()
-    local tempStatusFile = os.tmpname()
+    local tempFile = getTempFile()
+    local tempStatusFile = getTempFile()
     local tempBodyFile = nil
     
-    local cmd = "curl -s -X " .. method
-    cmd = cmd .. " -H 'Content-Type: application/json'"
+    local nullDev = getNullDevice()
+    
+    local cmdString = "curl -s -X " .. method
+    cmdString = cmdString .. " -H " .. quoteArg("Content-Type: application/json")
     
     if body and (method == "POST" or method == "PUT") then
-        tempBodyFile = os.tmpname()
+        tempBodyFile = getTempFile()
         local f = io.open(tempBodyFile, "w")
         if f then
             f:write(body)
             f:close()
-            cmd = cmd .. " -d @" .. tempBodyFile
+            cmdString = cmdString .. " -d @" .. quoteArg(tempBodyFile)
         end
     end
     
-    cmd = cmd .. " '" .. url .. "' -o " .. tempFile .. " -w '%{http_code}' > " .. tempStatusFile .. " 2>/dev/null"
+    cmdString = cmdString .. " " .. quoteArg(url)
+    cmdString = cmdString .. " -o " .. quoteArg(tempFile)
+    cmdString = cmdString .. " -w " .. quoteArg("%{http_code}")
+    cmdString = cmdString .. " > " .. quoteArg(tempStatusFile)
+    cmdString = cmdString .. " 2>" .. nullDev
     
-    local result = os.execute(cmd)
+    local result = os.execute(cmdString)
     
     local statusFile = io.open(tempStatusFile, "r")
     local httpCode = "500"
