@@ -126,33 +126,63 @@ export class WorldGenerator {
     // --- Roads ---
     private generateRoads(): void {
         const center = { x: 2500, y: 2500 };
-        const corners = [
-            { x: 500, y: 500 },   // NW
-            { x: 4500, y: 500 },  // NE
-            { x: 4500, y: 4500 }, // SE
-            { x: 500, y: 4500 },  // SW
+        const worldSizeInTiles = Math.floor(this.worldWidth / TILE_SIZE);
+        const halfSize = Math.floor(worldSizeInTiles / 2);
+        const maxIdx = worldSizeInTiles - 1;
+
+        // 1. 8-way radial roads to the edges
+        const boundaryPoints = [
+            { x: 0, y: 0 },              // NW
+            { x: halfSize, y: 0 },        // N
+            { x: maxIdx, y: 0 },          // NE
+            { x: maxIdx, y: halfSize },   // E
+            { x: maxIdx, y: maxIdx },     // SE
+            { x: halfSize, y: maxIdx },   // S
+            { x: 0, y: maxIdx },          // SW
+            { x: 0, y: halfSize },        // W
         ];
 
-        // Create a star-like network through spawn
-        for (const corner of corners) {
-            // Add some randomness to corners
-            const p1 = {
-                x: corner.x + this.rng.range(-400, 400),
-                y: corner.y + this.rng.range(-400, 400)
-            };
-            const p2 = { x: center.x, y: center.y };
+        const centerTile = { x: Math.floor(center.x / TILE_SIZE), y: Math.floor(center.y / TILE_SIZE) };
 
-            const start = { x: Math.floor(p1.x / TILE_SIZE), y: Math.floor(p1.y / TILE_SIZE) };
-            const end = { x: Math.floor(p2.x / TILE_SIZE), y: Math.floor(p2.y / TILE_SIZE) };
+        for (const target of boundaryPoints) {
+            // Add some randomness to edge points (don't stick perfectly to center of edge)
+            const jitter = 10;
+            const targetX = Math.max(0, Math.min(maxIdx, Math.floor(target.x + this.rng.range(-jitter, jitter))));
+            const targetY = Math.max(0, Math.min(maxIdx, Math.floor(target.y + this.rng.range(-jitter, jitter))));
+
+            const start = centerTile;
+            const end = { x: targetX, y: targetY };
 
             const path = this.findPath(start, end);
             if (path) {
                 console.log(`[WorldGenerator] Road segment: (${start.x},${start.y}) -> (${end.x},${end.y}), nodes: ${path.length}`);
                 this.drawThickLine(path);
-            } else {
-                console.warn(`[WorldGenerator] FAILED road segment: (${start.x},${start.y}) -> (${end.x},${end.y})`);
             }
         }
+
+        // 2. Interconnects (Web structure)
+        // Select random existing road tiles and connect them to other distant road tiles
+        const roadKeys = Object.keys(this.roadMap);
+        if (roadKeys.length > 100) {
+            for (let i = 0; i < 4; i++) {
+                const k1 = roadKeys[this.rng.range(0, roadKeys.length - 1)];
+                const k2 = roadKeys[this.rng.range(0, roadKeys.length - 1)];
+
+                const [x1, y1] = k1.split(',').map(Number);
+                const [x2, y2] = k2.split(',').map(Number);
+
+                // Only connect if they are reasonably far but not too far
+                const dist = Math.abs(x1 - x2) + Math.abs(y1 - y2);
+                if (dist > 30 && dist < 80) {
+                    const path = this.findPath({ x: x1, y: y1 }, { x: x2, y: y2 });
+                    if (path) {
+                        console.log(`[WorldGenerator] Interconnect: (${x1},${y1}) -> (${x2},${y2}), nodes: ${path.length}`);
+                        this.drawThickLine(path);
+                    }
+                }
+            }
+        }
+
         // Bitmasking & Writing to ChunkManager
         this.finalizeRoads();
     }
@@ -172,10 +202,9 @@ export class WorldGenerator {
         fScore[key(start)] = heuristic(start, end);
 
         let iterations = 0;
-        while (openSet.length > 0 && iterations < 50000) {
+        while (openSet.length > 0 && iterations < 100000) {
             iterations++;
-            // Sort by f
-            openSet.sort((a, b) => a.f - b.f);
+            // Shift the first element (already sorted)
             const currentNode = openSet.shift();
             const current = currentNode.pos;
 
@@ -199,9 +228,9 @@ export class WorldGenerator {
                 if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= this.worldWidth / TILE_SIZE || neighbor.y >= this.worldHeight / TILE_SIZE) continue;
 
                 // Noise-based cost to create winding roads
-                // Using a larger scale for "mountains/valleys" that the road avoids
-                const noiseVal = this.noise.get(neighbor.x * 0.1, neighbor.y * 0.1);
-                const stepCost = 1 + noiseVal * 15;
+                // Increased scale and cost for more unique winding paths
+                const noiseVal = this.noise.get(neighbor.x * 0.05, neighbor.y * 0.05);
+                const stepCost = 1 + noiseVal * 25;
 
                 const tentativeG = gScore[key(current)] + stepCost;
                 const nKey = key(neighbor);
@@ -212,11 +241,20 @@ export class WorldGenerator {
                     fScore[nKey] = tentativeG + heuristic(neighbor, end);
 
                     if (!openSet.some((node) => node.pos.x === neighbor.x && node.pos.y === neighbor.y)) {
-                        openSet.push({ pos: neighbor, f: fScore[nKey], g: tentativeG });
+                        const newNode = { pos: neighbor, f: fScore[nKey], g: tentativeG };
+                        // Binary search / sorted insertion
+                        let low = 0, high = openSet.length;
+                        while (low < high) {
+                            let mid = (low + high) >>> 1;
+                            if (openSet[mid].f < newNode.f) low = mid + 1;
+                            else high = mid;
+                        }
+                        openSet.splice(low, 0, newNode);
                     }
                 }
             }
         }
+        console.warn(`[WorldGenerator] Pathfinding TIMEOUT or FAILED from (${start.x},${start.y}) to (${end.x},${end.y}) after ${iterations} iterations`);
         return null;
     }
 
@@ -287,40 +325,42 @@ export class WorldGenerator {
     private generateWater(): void {
         const potentialSeeds: { x: number, y: number }[] = [];
 
-        // Find potential seeds near roads (ported from Lua)
-        // We iterate roadMap
+        // 1. Seeds near roads (Ponds along the path)
         for (const key in this.roadMap) {
             const [tx, ty] = key.split(',').map(Number);
-
-            // Try 2 random spots per tile
-            for (let i = 0; i < 2; i++) {
-                const dx = this.rng.range(-4, 4);
-                const dy = this.rng.range(-4, 4);
-
-                if (Math.abs(dx) >= 2 || Math.abs(dy) >= 2) {
-                    const targetX = tx + dx;
-                    const targetY = ty + dy;
-
-                    if (!this.isRoad(targetX, targetY) && !this.waterMap[`${targetX},${targetY}`]) {
-                        const spawnDist = Math.sqrt(Math.pow(targetX * 16 - 2500, 2) + Math.pow(targetY * 16 - 2500, 2));
-                        if (spawnDist > 150) {
-                            // Check buffer
-                            let tooClose = false;
-                            for (let cx = -1; cx <= 1; cx++) {
-                                for (let cy = -1; cy <= 1; cy++) {
-                                    if (this.isRoad(targetX + cx, targetY + cy)) tooClose = true;
-                                }
-                            }
-                            if (!tooClose) potentialSeeds.push({ x: targetX, y: targetY });
-                        }
-                    }
+            if (this.rng.next() < 0.02) { // 2% chance per road tile to seed nearby water
+                const dx = this.rng.range(-6, 6);
+                const dy = this.rng.range(-6, 6);
+                if (Math.abs(dx) >= 3 || Math.abs(dy) >= 3) {
+                    potentialSeeds.push({ x: tx + dx, y: ty + dy });
                 }
             }
         }
 
-        // Grow ponds
+        // 2. Distributed seeds (Wilderness ponds)
+        const worldSizeInTiles = this.worldWidth / TILE_SIZE;
+        for (let i = 0; i < 60; i++) { // Add 60 random wilderness seeds
+            potentialSeeds.push({
+                x: this.rng.range(10, worldSizeInTiles - 10),
+                y: this.rng.range(10, worldSizeInTiles - 10)
+            });
+        }
+
+        // Grow ponds from valid seeds
         for (const seed of potentialSeeds) {
-            if (this.rng.next() < 0.05) { // 5% chance (increased from 3% for more water)
+            // Check spawn safety (center of 5000x5000 is 2500,2500)
+            const distSq = Math.pow(seed.x * 16 - 2500, 2) + Math.pow(seed.y * 16 - 2500, 2);
+            if (distSq < 25000) continue; // Skip if too close to spawn (within ~150px)
+
+            // Check road buffer
+            let tooCloseToRoad = false;
+            for (let cx = -1; cx <= 1; cx++) {
+                for (let cy = -1; cy <= 1; cy++) {
+                    if (this.isRoad(seed.x + cx, seed.y + cy)) tooCloseToRoad = true;
+                }
+            }
+
+            if (!tooCloseToRoad && this.rng.next() < 0.1) {
                 this.growPond(seed);
             }
         }

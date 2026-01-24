@@ -35,7 +35,7 @@ echo ""
 
 # Download function
 download_file() {
-    local url="--prod"
+    local url=""
     local dest=""
     
     echo "Downloading: "

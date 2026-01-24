@@ -3,9 +3,8 @@ function love.conf(t)
     t.window.width = 1280   -- 320 * 4 for crisp pixel art
     t.window.height = 720   -- 180 * 4 (16:9 aspect ratio)
 
-    -- Disable VSync for Miyoo - use manual frame limiting instead
-    -- VSync can cause stuttering on devices with non-standard refresh rates
-    t.window.vsync = 0
+    -- Enable VSync for smooth rendering
+    t.window.vsync = 1
     
     -- Enable depth buffer for occlusion silhouettes
     t.window.depth = 16

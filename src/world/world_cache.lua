@@ -358,15 +358,15 @@ function WorldCache:buildSpatialIndex()
     local rockCount = 0
     local chunkCount = 0
 
-    -- For MIYO devices, limit the number of objects we index to reduce memory usage
-    local maxObjects = Constants.MIYOO_DEVICE and 1000 or 10000  -- MIYO: 1000 objects max, Desktop: 10000
-    print(string.format("WorldCache: Object limit set to %d for %s device", maxObjects, Constants.MIYOO_DEVICE and "MIYO" or "Desktop"))
+    -- Limit the number of objects we index to reduce memory usage
+    local maxObjects = 50000  -- Standard high limit
+    print(string.format("WorldCache: Object limit set to %d", maxObjects))
     local objectsIndexed = 0
 
     for chunkKey, chunkData in pairs(self.worldData.chunks) do
         chunkCount = chunkCount + 1
 
-        -- Index trees in this chunk (with limits for MIYO)
+        -- Index trees in this chunk
         if chunkData.trees and objectsIndexed < maxObjects then
             for _, tree in ipairs(chunkData.trees) do
                 if objectsIndexed >= maxObjects then break end
@@ -381,7 +381,7 @@ function WorldCache:buildSpatialIndex()
             end
         end
 
-        -- Index rocks in this chunk (with limits for MIYO)
+        -- Index rocks in this chunk
         if chunkData.rocks and objectsIndexed < maxObjects then
             for _, rock in ipairs(chunkData.rocks) do
                 if objectsIndexed >= maxObjects then break end
@@ -399,8 +399,8 @@ function WorldCache:buildSpatialIndex()
         -- Force garbage collection to prevent memory buildup during indexing
         collectgarbage("collect")
 
-        -- Break early for MIYO if we've hit the object limit
-        if Constants.MIYOO_DEVICE and objectsIndexed >= maxObjects then
+        -- Break early if we've hit the object limit
+        if objectsIndexed >= maxObjects then
             break
         end
     end

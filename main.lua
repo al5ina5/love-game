@@ -5,18 +5,16 @@ local Game = require('src.game')
 
 -- Frame timing for Miyoo optimization
 local Constants = require('src.constants')
-local targetFPS = Constants.MIYOO_TARGET_FPS
+local targetFPS = Constants.TARGET_FPS
 local targetDT = 1 / targetFPS
 local accumulator = 0
 local lastTime = 0
-local frameSleepEnabled = Constants.MIYOO_FRAME_SLEEP_ENABLED
+local frameSleepEnabled = Constants.FRAME_SLEEP_ENABLED
 
--- Memory optimization for Miyoo
-if Constants.MIYOO_DEVICE then
-    -- Reduce GC pressure on Miyoo with limited RAM
-    collectgarbage("setpause", 200)  -- Increase pause between GC cycles (default 200)
-    collectgarbage("setstepmul", 200)  -- Reduce GC step multiplier (default 200)
-end
+-- Memory optimization
+-- Force garbage collection periodically
+collectgarbage("setpause", 200)
+collectgarbage("setstepmul", 200)
 
 function love.load()
     -- Pixel-art friendly graphics settings

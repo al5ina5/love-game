@@ -190,6 +190,14 @@ local function processStateSnapshot(state, game)
                         playerData.sprinting
                     )
                 else
+                    -- This is US. Update authoritative position for reconciliation.
+                    if game.player then
+                        game.player:setAuthoritativePosition(
+                            playerData.x or 0,
+                            playerData.y or 0,
+                            playerData.lastProcessedSeq or 0
+                        )
+                    end
                     -- Clean up any ghost remote player for current player ID
                     if game.remotePlayers[playerId] then
                         game.remotePlayers[playerId] = nil

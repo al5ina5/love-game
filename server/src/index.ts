@@ -242,21 +242,35 @@ const tcpServer = net.createServer((socket: net.Socket) => {
           const msgType = parts[0];
 
           if (msgType === 'move' && playerId) {
-            // Player position update - server validates and updates
-            const x = parseFloat(parts[2]) || 0;
-            const y = parseFloat(parts[3]) || 0;
-            const direction = parts[4] || 'down';
-            const sprinting = parts[6] === '1' || parts[6] === 'true';
+            // Player batch update: move|playerId|count|direction|dx1|dy1|sprint1|dt1|seq1|...
+            const count = parseInt(parts[2]) || 0;
+            const direction = parts[3] || 'down';
+            const batch: { dx: number, dy: number, sprinting: boolean, dt: number, seq: number }[] = [];
 
-            // Server updates authoritative position
-            roomData.gameServer.updatePlayerPosition(playerId, x, y, direction, sprinting);
+            for (let i = 0; i < count; i++) {
+              const base = 4 + (i * 5);
+              batch.push({
+                dx: parseFloat(parts[base]) || 0,
+                dy: parseFloat(parts[base + 1]) || 0,
+                sprinting: parts[base + 2] === '1' || parts[base + 2] === 'true',
+                dt: parseFloat(parts[base + 3]) || 0.016,
+                seq: parseInt(parts[base + 4]) || 0
+              });
+            }
 
-            // Broadcast to other players
-            roomData.sockets.forEach((pid, s) => {
-              if (s !== socket) {
-                s.write(line + '\n');
-              }
-            });
+            // Server processes batch and returns authoritative position
+            roomData.gameServer.updatePlayerPosition(playerId, direction, batch);
+
+            // Broadcast authoritative position and sync seq to other players
+            const player = roomData.gameServer['state'].players[playerId];
+            if (player) {
+              const broadcastMsg = `move|${playerId}|${player.x.toFixed(2)}|${player.y.toFixed(2)}|${player.direction}|${player.skin || ''}|${player.sprinting ? '1' : '0'}|${player.lastProcessedSeq || 0}\n`;
+              roomData.sockets.forEach((pid, s) => {
+                if (s !== socket) {
+                  s.write(broadcastMsg);
+                }
+              });
+            }
           } else if (msgType === 'shoot' && playerId) {
             // Shoot input - server handles it
             const angle = parseFloat(parts[2]) || 0;

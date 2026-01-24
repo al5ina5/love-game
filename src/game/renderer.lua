@@ -105,16 +105,16 @@ function Renderer.collectDrawList(game)
         end
     end
 
-    -- Limit NPCs drawn on MIYO to reduce CPU usage
-    if Constants.MIYOO_DEVICE and #nearbyNPCs > 5 then
+    -- Standard limit for drawing NPCs
+    if #nearbyNPCs > 20 then
         table.sort(nearbyNPCs, function(a, b)
             local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
             local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
             return distA < distB
         end)
-        -- Keep only the closest 5 NPCs
+        -- Keep only the closest 20 NPCs
         local limitedNPCs = {}
-        for i = 1, math.min(5, #nearbyNPCs) do
+        for i = 1, math.min(20, #nearbyNPCs) do
             limitedNPCs[i] = nearbyNPCs[i]
         end
         nearbyNPCs = limitedNPCs
@@ -141,16 +141,16 @@ function Renderer.collectDrawList(game)
         end
     end
 
-    -- Limit animals drawn on MIYO to reduce CPU usage
-    if Constants.MIYOO_DEVICE and #nearbyAnimals > 10 then
+    -- Standard limit for drawing animals
+    if #nearbyAnimals > 50 then
         table.sort(nearbyAnimals, function(a, b)
             local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
             local distB = (b.x - cameraCenterX)^2 + (b.y - cameraCenterY)^2
             return distA < distB
         end)
-        -- Keep only the closest 10 animals
+        -- Keep only the closest 50 animals
         local limitedAnimals = {}
-        for i = 1, math.min(10, #nearbyAnimals) do
+        for i = 1, math.min(50, #nearbyAnimals) do
             limitedAnimals[i] = nearbyAnimals[i]
         end
         nearbyAnimals = limitedAnimals

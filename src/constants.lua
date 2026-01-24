@@ -142,91 +142,24 @@ Constants.DEV_SPRINT_MULTIPLIER = tonumber(env_vars["DEV_SPRINT_MULTIPLIER"]) or
 -- Temporarily disable chest interactions
 Constants.DISABLE_CHESTS = env_vars["DISABLE_CHESTS"] == "true" or (env_vars["DISABLE_CHESTS"] == nil and true)
 
--- Miyoo device detection and optimization
-Constants.MIYOO_DEVICE = false
+-- Performance and Network Settings
+Constants.NETWORK_POLL_RATE = 1/30  -- 30Hz network polling
+Constants.TARGET_FPS = 60          -- 60 FPS target
+Constants.FRAME_SLEEP_ENABLED = false
 
--- Try to detect Miyoo device based on various indicators
-local function detectMiyoo()
-    -- Check for Miyoo-specific environment variables
-    if os.getenv("MIYOO") or os.getenv("MIYOO_DEVICE") then
-        return true
-    end
-    
-    -- Check for Portmaster environment (common on Miyoo devices)
-    if os.getenv("PORTMASTER") or os.getenv("PORTMASTER_HOME") then
-        return true
-    end
+-- Prediction and Interpolation
+Constants.PREDICTION_CORRECTION_SPEED = 5.0
+Constants.MAX_PREDICTION_ERROR = 50
+Constants.INTERPOLATION_SPEED = 8
 
-    -- Check for Miyoo-specific screen resolution (320x240 is common)
-    if love and love.graphics then
-        local success, result = pcall(function()
-            local width = love.graphics.getWidth()
-            local height = love.graphics.getHeight()
-            -- Miyoo Mini/Mini+ common resolutions
-            if (width == 320 and height == 240) or 
-               (width == 640 and height == 480) then
-                return true
-            end
-            return false
-        end)
-        if success and result then
-            return true
-        end
-    end
+-- Network Rates
+Constants.BASE_SEND_RATE = 1/30
+Constants.MAX_SEND_RATE = 1/60
+Constants.MIN_SEND_RATE = 1/10
 
-    -- Check for Miyoo-specific CPU/memory constraints
-    -- This is a heuristic - could be enhanced with more specific detection
-    return false
-end
-
--- Detect Miyoo on startup
-Constants.MIYOO_DEVICE = detectMiyoo()
-
--- Miyoo-specific performance tuning
-if Constants.MIYOO_DEVICE then
-    print("Constants: Detected Miyoo device - applying optimizations")
-
-    -- Miyoo performance optimizations
-    Constants.MIYOO_NETWORK_POLL_RATE = 1/20  -- 20Hz network polling for Miyoo
-    Constants.MIYOO_TARGET_FPS = 30  -- Lower FPS for Miyoo to reduce CPU usage
-    Constants.MIYOO_FRAME_SLEEP_ENABLED = true
-
-    -- More aggressive prediction settings for higher latency
-    Constants.MIYOO_PREDICTION_CORRECTION_SPEED = 3.0  -- Faster correction
-    Constants.MIYOO_MAX_PREDICTION_ERROR = 75  -- Allow more prediction error
-    Constants.MIYOO_INTERPOLATION_SPEED = 6  -- Slightly faster interpolation
-
-    -- Network rate adjustments for Miyoo WiFi
-    Constants.MIYOO_BASE_SEND_RATE = 1/20  -- Conservative base rate
-    Constants.MIYOO_MAX_SEND_RATE = 1/40   -- Lower max rate
-    Constants.MIYOO_MIN_SEND_RATE = 1/8    -- Higher min rate for stability
-
-    -- Remote player interpolation tuning
-    Constants.MIYOO_REMOTE_LERP_SPEED = 6
-    Constants.MIYOO_MAX_EXTRAPOLATION_TIME = 0.3  -- Shorter extrapolation
-
-    -- Disable expensive rendering features
-    Constants.ENABLE_DESATURATION_EFFECT = false  -- Disable shader effects
-    Constants.DEV_MODE = false  -- Disable debug rendering
-
-else
-    -- Default settings for other devices (PC/Mac/Linux)
-    Constants.MIYOO_PREDICTION_CORRECTION_SPEED = 5.0
-    Constants.MIYOO_MAX_PREDICTION_ERROR = 50
-    Constants.MIYOO_INTERPOLATION_SPEED = 8
-
-    Constants.MIYOO_BASE_SEND_RATE = 1/30
-    Constants.MIYOO_MAX_SEND_RATE = 1/60
-    Constants.MIYOO_MIN_SEND_RATE = 1/10
-
-    Constants.MIYOO_REMOTE_LERP_SPEED = 8
-    Constants.MIYOO_MAX_EXTRAPOLATION_TIME = 0.5
-
-    -- Performance settings for desktop
-    Constants.MIYOO_NETWORK_POLL_RATE = 1/30  -- 30Hz network polling for desktop
-    Constants.MIYOO_TARGET_FPS = 60  -- Full 60 FPS for desktop
-    Constants.MIYOO_FRAME_SLEEP_ENABLED = false  -- No frame sleeping on desktop
-end
+-- Remote Player Tuning
+Constants.REMOTE_LERP_SPEED = 8
+Constants.MAX_EXTRAPOLATION_TIME = 0.5
 
 
 

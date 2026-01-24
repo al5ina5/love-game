@@ -71,10 +71,9 @@ function BaseEntity:updateAnimation(dt, isMoving)
 end
 
 function BaseEntity:draw()
-    -- Render at exact sub-pixel coordinates for smooth movement
-    -- This prevents the "sawtooth" jitter when camera follows smoothly
-    local drawX = self.x
-    local drawY = self.y
+    -- Use visual coordinates for smoothing if available, otherwise use physical coordinates
+    local drawX = self.visualX or self.x
+    local drawY = self.visualY or self.y
     
     -- Draw shadow
     love.graphics.setColor(0, 0, 0, 0.3)
@@ -91,14 +90,20 @@ function BaseEntity:draw()
         offsetX = self.frameWidth
     end
     
-    love.graphics.draw(
-        self.spriteSheet,
-        self.quads[self.animFrame],
-        drawX + offsetX,
-        drawY,
-        0,  -- rotation
-        scaleX, 1  -- scale
-    )
+    if self.spriteSheet and self.quads[self.animFrame] then
+        love.graphics.draw(
+            self.spriteSheet,
+            self.quads[self.animFrame],
+            drawX + offsetX,
+            drawY,
+            0,  -- rotation
+            scaleX, 1  -- scale
+        )
+    else
+        -- Fallback: Draw rectangle if sprite is missing
+        love.graphics.setColor(1, 0, 0, 1) -- Red for error
+        love.graphics.rectangle("fill", drawX, drawY, self.width, self.height)
+    end
 end
 
 return BaseEntity

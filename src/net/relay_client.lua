@@ -23,11 +23,11 @@ function RelayClient:new()
     self.paired = false -- True when opponent is also connected to relay
     self.buffer = "" -- For handling partial TCP packets
 
-    -- Adaptive send rate limiting (Miyoo-optimized for relay client)
+    -- Adaptive send rate limiting
     self.lastSendTime = 0
-    self.baseSendRate = Constants.MIYOO_BASE_SEND_RATE  -- Miyoo-tuned base rate
-    self.minSendRate = Constants.MIYOO_MIN_SEND_RATE   -- Min rate: conservative for poor connections
-    self.maxSendRate = Constants.MIYOO_MAX_SEND_RATE   -- Max rate: for excellent connections
+    self.baseSendRate = Constants.BASE_SEND_RATE
+    self.minSendRate = Constants.MIN_SEND_RATE
+    self.maxSendRate = Constants.MAX_SEND_RATE
     self.sendRate = self.baseSendRate
 
     -- Connection quality tracking
@@ -395,9 +395,8 @@ function RelayClient:send(data)
 end
 
 -- Compatible interface with ENet client
-function RelayClient:sendPosition(x, y, direction, skin, sprinting)
-    if not self.connected then
-        print("RelayClient: sendPosition called but not connected!")
+function RelayClient:sendPosition(direction, batch)
+    if not self.connected or not self.playerId then
         return false
     end
 
@@ -409,17 +408,26 @@ function RelayClient:sendPosition(x, y, direction, skin, sprinting)
     self.lastSendTime = now
     self.lastPacketSentTime = now  -- Track for ping measurement
 
-    -- Note: We still send position even if not paired yet (opponent may connect soon)
-    -- This allows smooth movement from the start
-    local encoded = Protocol.encode(Protocol.MSG.PLAYER_MOVE, self.playerId or "?", math.floor(x), math.floor(y), direction or "down")
-    if skin then
-        encoded = encoded .. "|" .. skin
+    -- Build batched message: move|id|count|direction|dx1|dy1|sprint1|dt1|seq1|...
+    local Protocol = require('src.net.protocol')
+    local parts = {
+        Protocol.MSG.PLAYER_MOVE,
+        self.playerId,
+        #batch,
+        direction or "down"
+    }
+
+    for _, input in ipairs(batch) do
+        table.insert(parts, string.format("%.2f", input.dx))
+        table.insert(parts, string.format("%.2f", input.dy))
+        table.insert(parts, input.sprinting and "1" or "0")
+        table.insert(parts, string.format("%.4f", input.dt))
+        table.insert(parts, math.floor(input.seq))
     end
-    if sprinting then
-        encoded = encoded .. "|1"
-    end
-    -- Position update (logging removed to reduce spam)
+
+    local encoded = table.concat(parts, "|")
     local success = self:send(encoded)
+    
     if not success then
         print("RelayClient: Failed to send position update!")
     end

@@ -17,6 +17,7 @@ interface Player {
   extracted: boolean;
   skin?: string;
   sprinting?: boolean;
+  lastProcessedSeq?: number;
 }
 
 interface Projectile {
@@ -365,19 +366,40 @@ export class GameServer {
     console.log(`[GameServer] Player ${playerId} removed`);
   }
 
-  updatePlayerPosition(playerId: string, x: number, y: number, direction: string, sprinting?: boolean): void {
+  updatePlayerPosition(playerId: string, direction: string, batch: { dx: number, dy: number, sprinting: boolean, dt: number, seq: number }[]): void {
     const player = this.state.players[playerId];
-    if (!player) return;
+    if (!player || batch.length === 0) return;
 
-    // Server validates and updates position
-    // Could add collision checking here
-    player.x = Math.max(0, Math.min(this.worldWidth, x));
-    player.y = Math.max(0, Math.min(this.worldHeight, y));
-    player.direction = direction;
-    if (sprinting !== undefined) {
-      player.sprinting = sprinting;
+    for (const input of batch) {
+      // Skip already processed inputs
+      if (player.lastProcessedSeq !== undefined && input.seq <= player.lastProcessedSeq) {
+        continue;
+      }
+
+      const speed = 60 * (input.sprinting ? 1.5 : 1.0);
+      const dt = Math.min(input.dt, 0.1); // Clamp dt for safety
+
+      const newX = player.x + input.dx * speed * dt;
+      const newY = player.y + input.dy * speed * dt;
+
+      // Validate move
+      if (this.canMoveTo(newX, newY)) {
+        player.x = newX;
+        player.y = newY;
+      } else {
+        // Sliding
+        if (this.canMoveTo(newX, player.y)) {
+          player.x = newX;
+        } else if (this.canMoveTo(player.x, newY)) {
+          player.y = newY;
+        }
+      }
+
+      player.lastProcessedSeq = input.seq;
+      player.sprinting = input.sprinting;
     }
 
+    player.direction = direction;
     this.spatialGrid.updateEntity(playerId, player.x, player.y);
   }
 
@@ -455,6 +477,34 @@ export class GameServer {
         // Could add extraction timer/sequence here
       }
     }
+  }
+
+  private canMoveTo(x: number, y: number): boolean {
+    // 1. World Bounds
+    if (x < 0 || x >= this.worldWidth || y < 0 || y >= this.worldHeight) return false;
+
+    // 2. Tile-based collision (Rocks/Water)
+    const { cx, cy } = this.chunkManager.worldToChunk(x, y);
+    const chunk = this.chunkManager.getChunk(cx, cy);
+    if (!chunk) return true; // If chunk not loaded yet on server, allow (should technically not happen)
+
+    const lx = Math.floor((x % this.chunkManager.CHUNK_SIZE) / 16);
+    const ly = Math.floor((y % this.chunkManager.CHUNK_SIZE) / 16);
+    const tileKey = `${lx},${ly}`;
+
+    // Block water
+    if (chunk.water[tileKey]) return false;
+
+    // 3. Object-based collision (Rocks/Trees)
+    // For simplicity, we'll check against trees/rocks in this chunk and neighbors
+    // Note: This is an approximation for now to avoid high CPU spikes
+    for (const tree of chunk.trees) {
+      const trunkX = tree.x + 24;
+      const trunkY = tree.y + 57;
+      if (x >= trunkX && x <= trunkX + 16 && y >= trunkY && y <= trunkY + 8) return false;
+    }
+
+    return true;
   }
 
   private updateProjectiles(dt: number): void {

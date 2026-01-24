@@ -39,9 +39,23 @@ function RemotePlayer:setSprite(spriteName)
     if self.spriteName == spriteName and self.spriteSheet then
         return  -- Already set
     end
+    
+    -- Validate sprite name
+    if not spriteName or spriteName == "" or spriteName == "0" then
+        spriteName = "Elf Bladedancer"
+    end
+    
     self.spriteName = spriteName
     local spritePath = "assets/img/sprites/humans/" .. spriteName .. "/" .. spriteName:gsub(" ", "") .. ".png"
     self:loadSprite(spritePath)
+    
+    -- Try fallback if loading failed
+    if not self.spriteSheet then
+        print("RemotePlayer: Failed to load sprite '" .. spriteName .. "', trying fallback")
+        self.spriteName = "Elf Bladedancer"
+        spritePath = "assets/img/sprites/humans/" .. self.spriteName .. "/" .. self.spriteName:gsub(" ", "") .. ".png"
+        self:loadSprite(spritePath)
+    end
 end
 
 function RemotePlayer:addSnapshot(timestamp, x, y)

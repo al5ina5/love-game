@@ -4,7 +4,7 @@ local Constants = require('src.constants')
 local NetworkUpdater = {}
 
 local timeSinceLastUpdate = 0
-local sendRate = Constants.MIYOO_BASE_SEND_RATE
+local sendRate = Constants.BASE_SEND_RATE
 
 function NetworkUpdater.update(game, dt)
     -- Safety checks
@@ -33,13 +33,13 @@ function NetworkUpdater.update(game, dt)
         -- Get player state
         local player = game.player
         
-        game.network:sendPosition(
-            player.x, 
-            player.y, 
-            player.direction, 
-            player.spriteName, 
-            player.isSprinting
-        )
+        -- Send entire batch of unacknowledged inputs for redundant loss tolerance
+        if #player.inputHistory > 0 then
+            game.network:sendPosition(
+                player.direction,
+                player.inputHistory
+            )
+        end
     end
 end
 

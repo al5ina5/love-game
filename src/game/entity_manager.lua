@@ -71,16 +71,15 @@ function EntityManager.updateNPCs(npcs, dt, chunkManager, worldCache, camera)
     local npcsToUpdate = npcs or {}
 
     if worldCache and worldCache.isReady and worldCache:isReady() and camera then
-        -- Get NPCs near camera (same radius as rendering)
+        -- Get NPCs near camera
         local cameraCenterX = camera.x + camera.width/2
         local cameraCenterY = camera.y + camera.height/2
-        local updateRadius = 400  -- Update NPCs within 400 pixels
+        local updateRadius = 400  -- Standard 400 pixels
 
         npcsToUpdate = worldCache:getNearbyNPCs(cameraCenterX, cameraCenterY, updateRadius)
 
-        -- Limit to prevent too many updates on MIYO
-        local Constants = require('src.constants')
-        local maxNPCs = Constants.MIYOO_DEVICE and 8 or 20
+        -- Standard limit for NPC updates
+        local maxNPCs = 20
         if #npcsToUpdate > maxNPCs then
             table.sort(npcsToUpdate, function(a, b)
                 local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2
@@ -120,16 +119,15 @@ function EntityManager.updateAnimals(animals, dt, world, chunkManager, worldWidt
     local animalsToUpdate = animals or {}
 
     if worldCache and worldCache.isReady and worldCache:isReady() and camera then
-        -- Get animals near camera (same radius as rendering)
+        -- Get animals near camera
         local cameraCenterX = camera.x + camera.width/2
         local cameraCenterY = camera.y + camera.height/2
-        local updateRadius = 500  -- Update animals within 500 pixels (larger than render radius)
+        local updateRadius = 500  -- Standard 500 pixels
 
         animalsToUpdate = worldCache:getNearbyAnimals(cameraCenterX, cameraCenterY, updateRadius)
 
-        -- Limit to prevent too many updates on MIYO
-        local Constants = require('src.constants')
-        local maxAnimals = Constants.MIYOO_DEVICE and 15 or 50
+        -- Standard limit for animal updates
+        local maxAnimals = 50
         if #animalsToUpdate > maxAnimals then
             table.sort(animalsToUpdate, function(a, b)
                 local distA = (a.x - cameraCenterX)^2 + (a.y - cameraCenterY)^2

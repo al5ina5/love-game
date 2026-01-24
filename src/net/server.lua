@@ -101,7 +101,7 @@ function Server:broadcast(data, excludePeer, reliable)
     table.insert(self.localMessages, data)
 end
 
-function Server:sendPosition(x, y, direction, skin, sprinting)
+function Server:sendPosition(dx, dy, direction, skin, sprinting, seqNum)
     if not self.host then return end
     
     -- Store host's skin for new connections

@@ -51,11 +51,37 @@ function Protocol.decode(data)
     
     if msgType == Protocol.MSG.PLAYER_MOVE then
         msg.id = parts[2]
-        msg.x = tonumber(parts[3]) or 0
-        msg.y = tonumber(parts[4]) or 0
-        msg.dir = parts[5] or "down"
-        msg.skin = parts[6]  -- Optional skin name
-        msg.sprinting = parts[7] == "1" or parts[7] == "true"  -- Sprint state (optional, defaults to false)
+        
+        -- Disambiguate: Server Broadcast (move|id|x|y|dir...) vs Client Batch (move|id|count|dir|dx1...)
+        -- Heuristic: If part 4 is a direction string (not a number), it's a batch.
+        local part4Num = tonumber(parts[4])
+        
+        if part4Num then
+            -- Server -> Client (Authoritative Sync)
+            -- move|id|x|y|dir|skin|sprint|lastProcessedSeq
+            msg.x = tonumber(parts[3])
+            msg.y = part4Num
+            msg.dir = parts[5] or "down"
+            msg.skin = parts[6]
+            msg.sprinting = parts[7] == "1" or parts[7] == "true"
+            msg.lastProcessedSeq = tonumber(parts[8]) or 0
+        else
+            -- Client -> Server (Batched Inputs)
+            -- move|id|count|dir|dx1|dy1|sprint1|dt1|seq1|...
+            msg.count = tonumber(parts[3]) or 0
+            msg.dir = parts[4] or "down"
+            msg.batch = {}
+            for i = 1, msg.count do
+                local base = 5 + (i-1) * 5
+                table.insert(msg.batch, {
+                    dx = tonumber(parts[base]) or 0,
+                    dy = tonumber(parts[base+1]) or 0,
+                    sprinting = parts[base+2] == "1" or parts[base+2] == "true",
+                    dt = tonumber(parts[base+3]) or 0.016,
+                    seq = tonumber(parts[base+4]) or 0
+                })
+            end
+        end
         
     elseif msgType == Protocol.MSG.PLAYER_JOIN then
         msg.id = parts[2]

@@ -22,11 +22,19 @@ function Player:new(x, y)
     self.authoritativeY = self.y
     self.predictedX = self.x
     self.predictedY = self.y
-    self.lastAuthoritativeTime = love.timer.getTime()
-    self.predictionErrorX = 0
-    self.predictionErrorY = 0
-    self.maxPredictionError = Constants.MIYOO_MAX_PREDICTION_ERROR -- pixels before hard correction
-    self.correctionSpeed = Constants.MIYOO_PREDICTION_CORRECTION_SPEED   -- how fast to correct prediction errors
+    
+    -- Industrial Grade CSP State
+    self.inputHistory = {} -- Queue of {seq, dx, dy, sprinting}
+    self.nextSeqNum = 1
+    self.lastProcessedSeq = 0
+    
+    -- Visual Smoothing
+    self.visualX = self.x
+    self.visualY = self.y
+    self.smoothingFactor = 0.2 -- Speed to slide visual toward physical (0.1 - 0.5)
+    
+    self.lastDx = 0
+    self.lastDy = 0
     
     -- Load sprite sheet (16x16 per frame, 4 frames horizontal)
     -- Randomly select from available human sprites
@@ -69,18 +77,23 @@ function Player:update(dt)
     end
     local currentSpeed = self.speed * sprintMultiplier
 
-    -- Update position directly (disable complex prediction for now to fix movement)
-    local oldX, oldY = self.x, self.y
+    -- Update position directly (CSP Prediction)
     self.x = self.x + dx * currentSpeed * dt
     self.y = self.y + dy * currentSpeed * dt
 
-
-
-    -- Keep prediction state in sync for when we re-enable it
-    self.predictedX = self.x
-    self.predictedY = self.y
-    self.authoritativeX = self.x
-    self.authoritativeY = self.y
+    -- Record input in history for reconciliation
+    table.insert(self.inputHistory, {
+        seq = self.nextSeqNum,
+        dx = dx,
+        dy = dy,
+        sprinting = isSprinting,
+        dt = dt
+    })
+    
+    self.lastSeqUsed = self.nextSeqNum
+    self.nextSeqNum = self.nextSeqNum + 1
+    self.lastDx = dx
+    self.lastDy = dy
 
     -- Update facing direction
     self.moving = (dx ~= 0 or dy ~= 0)
@@ -90,26 +103,34 @@ function Player:update(dt)
     elseif dy > 0 then self.direction = "down"
     end
 
+    -- Visual Smoothing: Interpolate visualX/Y toward real x/y
+    -- This hides minor snapping during reconciliation
+    local smoothDt = math.min(dt * 15, 1.0) -- Adjust 15 for snappiness
+    self.visualX = self.visualX + (self.x - self.visualX) * smoothDt
+    self.visualY = self.visualY + (self.y - self.visualY) * smoothDt
+
     -- Update animation using base class method
     self:updateAnimation(dt, self.moving)
 end
 
--- Update authoritative position from server
-function Player:setAuthoritativePosition(x, y, forceCorrection)
-    self.authoritativeX = x
-    self.authoritativeY = y
-    self.lastAuthoritativeTime = love.timer.getTime()
-
-    if forceCorrection then
-        -- Hard correction for large desyncs - snap to server position
-        print(string.format("Player: Hard correction - predicted(%.1f,%.1f) -> authoritative(%.1f,%.1f)",
-            self.predictedX, self.predictedY, x, y))
-        self.predictedX = x
-        self.predictedY = y
-        self.x = x
-        self.y = y
+-- Reconcile authoritative position from server
+function Player:setAuthoritativePosition(srvX, srvY, lastProcessedSeq)
+    -- 1. Remove processed inputs from history
+    while #self.inputHistory > 0 and self.inputHistory[1].seq <= lastProcessedSeq do
+        table.remove(self.inputHistory, 1)
     end
-    -- If not forceCorrection, just update authoritative position and let normal correction handle it
+
+    -- 2. Reset position to authoritative server position
+    self.x = srvX
+    self.y = srvY
+
+    -- 3. Re-simulate unacknowledged inputs
+    for _, input in ipairs(self.inputHistory) do
+        local multiplier = input.sprinting and 1.5 or 1.0
+        local speed = self.speed * multiplier
+        self.x = self.x + input.dx * speed * input.dt
+        self.y = self.y + input.dy * speed * input.dt
+    end
 end
 
 -- Get current prediction error for debugging

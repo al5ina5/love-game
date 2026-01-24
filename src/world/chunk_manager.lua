@@ -22,10 +22,8 @@ function ChunkManager:new(worldWidth, worldHeight)
     self.activeChunks = {}  -- Set of chunk keys (cx, cy)
     
     -- Load distance (how many chunks around the player to keep loaded)
-    -- Miyoo: Load only current chunk (1x1 = 1 chunk) to prevent freeze
-    -- Desktop: Load 3x3 grid (9 chunks) for smooth experience
-    local Constants = require('src.constants')
-    self.loadDistance = Constants.MIYOO_DEVICE and 0 or 1
+    -- Load 3x3 grid (9 chunks) for smooth experience across all platforms
+    self.loadDistance = 1
     
     return self
 end

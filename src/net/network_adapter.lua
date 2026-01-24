@@ -60,25 +60,25 @@ function NetworkAdapter:hasServerLogic()
     return self.type == NetworkAdapter.TYPE.LAN and self.server and self.server.serverLogic ~= nil
 end
 
--- Send position update (for walking simulator)
-function NetworkAdapter:sendPosition(x, y, direction, skin, sprinting)
+-- Send position update (batches for authoritative movement)
+function NetworkAdapter:sendPosition(direction, batch)
     if not self:isConnected() then 
-        print("NetworkAdapter: sendPosition called but not connected (type: " .. (self.type or "nil") .. ")")
         return false 
     end
     
-    if self.type == NetworkAdapter.TYPE.LAN then
-        if self.server then
-            self.server:sendPosition(x, y, direction, skin, sprinting)
-        elseif self.client then
-            self.client:sendPosition(x, y, direction, skin, sprinting)
-        end
-    else
+    if self.type == NetworkAdapter.TYPE.RELAY then
         if self.client then
-
-            self.client:sendPosition(x, y, direction, skin, sprinting)
-        else
-            print("NetworkAdapter: sendPosition called but no client available (type: " .. self.type .. ")")
+            return self.client:sendPosition(direction, batch)
+        end
+    elseif self.type == NetworkAdapter.TYPE.LAN then
+        -- LAN currently sends single position (backwards compatibility)
+        local latest = batch[#batch]
+        if latest then
+            if self.server then
+                self.server:sendPosition(direction, latest)
+            elseif self.client then
+                self.client:sendPosition(direction, latest)
+            end
         end
     end
     return true

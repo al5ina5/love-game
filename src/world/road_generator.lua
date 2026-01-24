@@ -44,10 +44,9 @@ local ROAD_TILES = {
 local TILE_SIZE = 16
 local ROAD_THICKNESS = 4 -- Radius. 1 = 3x3 brush (Center + 1 neighbor each side)
 
--- Reduce road thickness on Miyoo for performance
+-- Standard road thickness
 local function getRoadThickness()
-    local Constants = require('src.constants')
-    return Constants.MIYOO_DEVICE and 2 or ROAD_THICKNESS  -- Miyoo: thinner roads (5x5), Desktop: thick roads (9x9)
+    return ROAD_THICKNESS  -- Thick roads (9x9) for everyone
 end
 
 function RoadGenerator:new(world)

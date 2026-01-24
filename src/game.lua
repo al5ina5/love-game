@@ -50,9 +50,9 @@ local Game = {
     -- World cache for MIYO performance optimization
     worldCache = nil,
 
-    -- Network polling optimization for Miyoo
+    -- Network polling optimization
     lastNetworkPoll = 0,
-    networkPollInterval = Constants.MIYOO_NETWORK_POLL_RATE, -- Miyoo-tuned polling rate
+    networkPollInterval = Constants.NETWORK_POLL_RATE, -- Standardized polling rate
 }
 
 function Game:load()
@@ -147,10 +147,10 @@ function Game:update(dt)
     OnlineClient.update()
 
     if not self.loadingComplete then
-        -- Emergency timeout for MIYO loading
+        -- Emergency timeout for loading
         self.loadingTimer = (self.loadingTimer or 0) + dt
         local Constants = require('src.constants')
-        local timeout = Constants.MIYOO_DEVICE and 30 or 60  -- MIYO: 30 seconds, Desktop: 60 seconds
+        local timeout = 60  -- Standard 60 seconds timeout
 
         if self.loadingTimer > timeout then
             print(string.format("Game: EMERGENCY - Loading timeout after %.1f seconds, forcing completion", self.loadingTimer))
@@ -165,7 +165,7 @@ function Game:update(dt)
         return
     end
     
-    -- Connect to network after loading completes (prevents freeze on Miyoo)
+    -- Connect to network after loading completes
     if not self.networkConnectionAttempted then
         self.networkConnectionAttempted = true
         pcall(function()
@@ -254,7 +254,7 @@ function Game:update(dt)
         print("ERROR: Network update failed: " .. tostring(err))
     end
 
-    -- Throttle network polling for Miyoo performance
+    -- Throttle network polling
     -- Only poll network at reduced frequency to prevent micro-stutters
     self.lastNetworkPoll = self.lastNetworkPoll + dt
     if self.network and self.lastNetworkPoll >= self.networkPollInterval then
@@ -567,10 +567,8 @@ function Game:logMemoryUsage(dt)
         end
 
 
-        -- Force garbage collection periodically to prevent memory creep
-        if Constants.MIYOO_DEVICE then
-            collectgarbage("collect")
-        end
+        -- Force garbage collection periodically
+        collectgarbage("collect")
     end
 end
 

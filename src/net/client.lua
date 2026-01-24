@@ -17,11 +17,11 @@ function Client:new()
     self.connected = false
     self.playerId = nil
     
-    -- Adaptive rate limiting (Miyoo-optimized, adjusts based on connection quality)
+    -- Adaptive rate limiting
     self.lastSendTime = 0
-    self.baseSendRate = Constants.MIYOO_BASE_SEND_RATE  -- Miyoo-tuned base rate
-    self.minSendRate = Constants.MIYOO_MIN_SEND_RATE   -- Min rate: conservative for poor connections
-    self.maxSendRate = Constants.MIYOO_MAX_SEND_RATE   -- Max rate: for excellent connections
+    self.baseSendRate = Constants.BASE_SEND_RATE
+    self.minSendRate = Constants.MIN_SEND_RATE
+    self.maxSendRate = Constants.MAX_SEND_RATE
     self.sendRate = self.baseSendRate
 
     -- Connection quality tracking
@@ -67,7 +67,7 @@ function Client:disconnect()
     print("Disconnected")
 end
 
-function Client:sendPosition(x, y, direction, skin, sprinting)
+function Client:sendPosition(dx, dy, direction, skin, sprinting, seqNum)
     if not self.connected or not self.server then return end
 
     local now = love.timer.getTime()
